@@ -5,7 +5,17 @@
 package dao
 
 import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/gogf/gf/v2/database/gdb"
+	"github.com/gogf/gf/v2/frame/g"
+
 	"fuya-ark/internal/dao/internal"
+	"fuya-ark/internal/model/entity"
 )
 
 // internalBalanceInfoDao is internal type for wrapping internal DAO implements.
@@ -25,3 +35,62 @@ var (
 )
 
 // Fill with you ideas below.
+
+// UpdateOrInsert 加钻
+func (m *balanceInfoDao) UpdateOrInsert(ctx context.Context, balanceInfo *entity.BalanceInfo, tx gdb.TX) error {
+	sqlStr := fmt.Sprintf(
+		"insert into balance_info set user_id = %d, total_fee=%d, total_payout_diamonds=0, total_pay_diamonds=%d, remain_diamonds=%d,create_time=%d,update_time=%d ON DUPLICATE KEY UPDATE  total_fee=total_fee+%d,  total_pay_diamonds=total_pay_diamonds+%d, remain_diamonds=remain_diamonds+%d,update_time=%d",
+		balanceInfo.UserId, balanceInfo.TotalFee, balanceInfo.TotalPayDiamonds, balanceInfo.RemainDiamonds, balanceInfo.CreateTime, balanceInfo.UpdateTime, balanceInfo.TotalFee, balanceInfo.TotalPayDiamonds, balanceInfo.RemainDiamonds, balanceInfo.UpdateTime)
+	if _, err := tx.Ctx(ctx).Exec(sqlStr); err != nil {
+		g.Log().Warning(ctx, "UpdateOrInsert 修改balance_info的值: %s ", err)
+		return err
+	}
+	return nil
+}
+
+func (m *balanceInfoDao) GetBalanceInfoByUserid(ctx context.Context, userId int64, tx gdb.TX) (balanceInfo *entity.BalanceInfo, err error) {
+	err = m.DB().Model().Ctx(ctx).TX(tx).Where("user_id=?", userId).Scan(&balanceInfo)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	return balanceInfo, err
+}
+
+// UpdateBalance 扣钻
+func (m *balanceInfoDao) UpdateBalance(ctx context.Context, userId, diamonds int64, tx gdb.TX) (affected int64, err error) {
+	modelDb := m.DB().Model().Ctx(ctx)
+	if tx != nil {
+		modelDb.TX(tx)
+	}
+	sqlResult, err := modelDb.
+		Data(
+			" total_payout_diamonds=total_payout_diamonds+?,remain_diamonds=remain_diamonds-?,update_time=?",
+			diamonds, diamonds, time.Now().Unix(),
+		).
+		Where("user_id", userId).
+		WhereGTE("remain_diamonds", 0).
+		Update()
+	if err != nil {
+		return 0, err
+	}
+	affected, _ = sqlResult.RowsAffected()
+	return affected, nil
+}
+
+// GetByUserId 根据用户获取余额
+func (m *balanceInfoDao) GetByUserId(ctx context.Context, userId int64) (balance *entity.BalanceInfo) {
+	_ = m.DB().Ctx(ctx).Model().Ctx(ctx).Where("user_id=?", userId).Scan(balance)
+	return
+}
+
+// GetByUserIdWithTx 根据用户ID获取余额
+func (m *balanceInfoDao) GetByUserIdWithTx(ctx context.Context, userId int64, tx gdb.TX) (balance *entity.BalanceInfo) {
+	_ = m.DB().Ctx(ctx).Model().TX(tx).Ctx(ctx).Where("user_id=?", userId).Scan(balance)
+	return
+}
+
+// SumRemainDiamonds 根据用户获取余额
+func (m *balanceInfoDao) SumRemainDiamonds(ctx context.Context, userId int64) int64 {
+	total, _ := m.DB().Ctx(ctx).Model().Ctx(ctx).Where("user_id=?", userId).Sum("remain_diamonds")
+	return int64(total)
+}

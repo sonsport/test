@@ -14,6 +14,8 @@ type (
 	IInviterActivity interface {
 		// ShareChannels 分享
 		ShareChannels(ctx context.Context, in model.ShareChannelsInput) (out model.ShareChannelsOutput, err error)
+		// NewUserLoginReward 新用户绑定
+		NewUserLoginReward(ctx context.Context, in model.NewUserLoginRewardInput) (out model.NewUserLoginRewardOutput, err error)
 	}
 )
 

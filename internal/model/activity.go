@@ -10,3 +10,12 @@ type ShareChannelsInput struct {
 type ShareChannelsOutput struct {
 	Link string `json:"link"  description:"分享链接"`
 }
+
+// NewUserLoginRewardInput 分享登录绑定
+type NewUserLoginRewardInput struct {
+	InviterId int64 `json:"inviterId"  description:"邀请用户id"`
+}
+
+type NewUserLoginRewardOutput struct {
+	ErrCode int `json:"errCode"`
+}

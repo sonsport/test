@@ -3,26 +3,40 @@ package controller
 import (
 	"context"
 
+	"github.com/gogf/gf/v2/errors/gcode"
 	"github.com/gogf/gf/v2/util/gconv"
 
-	v1 "fuya-ark/api/v1"
 	"fuya-ark/internal/model"
 	"fuya-ark/internal/service"
+	"fuya-ark/utility"
 )
 
 var Activity = cActivity{}
 
 type cActivity struct{}
 
-func (c *cActivity) ShareChannels(ctx context.Context, req *v1.ShareChannelsReq) (res *v1.ShareChannelsRes, err error) {
+func (c *cActivity) ShareChannels(ctx context.Context, r RequestParam) (resp interface{}, gCode gcode.Code) {
 	data := model.ShareChannelsInput{}
-	err = gconv.Struct(req, &data)
+	err := gconv.Struct(r, &data)
 	if err != nil {
-		return nil, err
+		return nil, utility.ParamError
 	}
 	out, err := service.InviterActivity().ShareChannels(ctx, data)
 	if err != nil {
-		return nil, err
+		return nil, utility.Internal
 	}
-	return &v1.ShareChannelsRes{Link: out.Link}, nil
+	return &model.ShareChannelsOutput{Link: out.Link}, utility.Succeed
+}
+
+func (c *cActivity) NewUserLoginReward(ctx context.Context, r RequestParam) (resp interface{}, gCode gcode.Code) {
+	data := model.NewUserLoginRewardInput{}
+	err := gconv.Struct(r, &data)
+	if err != nil {
+		return nil, utility.ParamError
+	}
+	out, err := service.InviterActivity().NewUserLoginReward(ctx, data)
+	if err != nil {
+		return nil, utility.Internal
+	}
+	return out, utility.Succeed
 }

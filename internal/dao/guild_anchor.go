@@ -5,7 +5,12 @@
 package dao
 
 import (
+	"context"
+
+	"github.com/gogf/gf/v2/frame/g"
+
 	"fuya-ark/internal/dao/internal"
+	"fuya-ark/internal/model/entity"
 )
 
 // internalGuildAnchorDao is internal type for wrapping internal DAO implements.
@@ -25,3 +30,15 @@ var (
 )
 
 // Fill with you ideas below.
+
+func (m *guildAnchorDao) GetGuildAnchor(ctx context.Context, userId int64, status int) (
+	data *entity.GuildAnchor, err error) {
+	err = g.DB().Model(GuildAnchor.Table()).Ctx(ctx).
+		Where("user_id", userId).
+		Where("status", status).
+		//Cache(gdb.CacheOption{
+		//	Duration: time.Hour, Name: cache.MysqlAnchorGuildByUserId + gconv.String(userId) + gconv.String(status)},
+		//).
+		Scan(&data)
+	return data, err
+}

@@ -5,6 +5,10 @@
 package dao
 
 import (
+	"context"
+
+	"github.com/gogf/gf/v2/frame/g"
+
 	"fuya-ark/internal/dao/internal"
 )
 
@@ -25,3 +29,13 @@ var (
 )
 
 // Fill with you ideas below.
+
+func (m *shareNewUserInfoDao) GetInvitedUserCountByTime(ctx context.Context, userId int64, startTime int64) (int, error) {
+	count, err := g.DB().Model(shareNewUserInfoDao.Table).Ctx(ctx).
+		Where("owner_user_id = ? and create_time > ?", userId, startTime).Count()
+	if err != nil {
+		g.Log().Errorf(ctx, "GetInvitedInfoByIP Err = %v", err)
+		return 0, err
+	}
+	return count, nil
+}
