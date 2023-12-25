@@ -3,6 +3,8 @@ package cmd
 import (
 	"context"
 
+	_ "github.com/gogf/gf/contrib/nosql/redis/v2"
+
 	"fuya-ark/internal/consts"
 	"fuya-ark/internal/controller"
 	"fuya-ark/internal/service"
@@ -18,7 +20,7 @@ var (
 		Usage: consts.ProjectUsage,
 		Brief: consts.ProjectBrief,
 		Func: func(ctx context.Context, parser *gcmd.Parser) (err error) {
-			s := g.Server()
+			s := g.Server(consts.ProjectName)
 			//订单超时未评价默认好评
 			err = UserOrderDefaultComments(ctx)
 			//if err != nil {
@@ -31,30 +33,32 @@ var (
 				return err
 			}
 			//前台项目路由组
-			s.Group("/ark-api", func(group *ghttp.RouterGroup) {
+			s.Group("/api/v1", func(group *ghttp.RouterGroup) {
 				group.Middleware(
 					service.Middleware().CORS,
 					service.Middleware().Ctx,
 					service.Middleware().ResponseHandler,
 				)
-				//不需要登录的路由组绑定
-				group.Bind(
-					controller.User.Register, //用户注册
-				)
+				err := frontendToken.Middleware(ctx, group)
+				if err != nil {
+					return
+				}
 				//需要登录鉴权的路由组
-				group.Group("/", func(group *ghttp.RouterGroup) {
-					err := frontendToken.Middleware(ctx, group)
-					if err != nil {
-						return
-					}
-					//需要登录鉴权的接口放到这里
+				group.Group("/activity", func(group *ghttp.RouterGroup) {
 					group.Bind(
-						//controller.User.Info,           //当前登录用户的信息
+						controller.Activity,
+					)
+				})
+				group.Group("/user", func(group *ghttp.RouterGroup) {
+					group.Bind(
 						//controller.User.UpdatePassword, //当前用户修改密码
+						//controller.User.Info,           //当前登录用户的信息
 						controller.User.UserDetail, //当前登录用户的详细信息
+						controller.User.Register,   //用户注册
 					)
 				})
 			})
+
 			s.SetPort(8000) //设置端口
 			s.Run()
 			return nil

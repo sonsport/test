@@ -64,7 +64,7 @@ func (*sUser) UpdatePassword(ctx context.Context, in model.UpdatePasswordInput) 
 func (*sUser) UserDetail(ctx context.Context, in model.UserDetailInput) (out model.UserDetailOutput, err error) {
 	userInfo := do.UserInfo{}
 	userId := gconv.Uint(ctx.Value(consts.CtxUserId))
-	err = dao.UserInfo.Ctx(ctx).WherePri("user_id", userId).Scan(&userInfo)
+	err = dao.UserInfo.Ctx(ctx).WherePri(dao.UserInfo.Columns().UserId, userId).Scan(&userInfo)
 	if err != nil {
 		return model.UserDetailOutput{}, err
 	}

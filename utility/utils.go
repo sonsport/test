@@ -3,6 +3,12 @@ package utility
 import (
 	"context"
 	"fmt"
+	"math/rand"
+	"net"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/gogf/gf/v2/crypto/gmd5"
 	"github.com/gogf/gf/v2/database/gdb"
 	"github.com/gogf/gf/v2/encoding/gcharset"
@@ -14,11 +20,6 @@ import (
 	"github.com/gogf/gf/v2/os/gtime"
 	"github.com/gogf/gf/v2/text/gstr"
 	"github.com/gogf/gf/v2/util/gconv"
-	"math/rand"
-	"net"
-	"strconv"
-	"strings"
-	"time"
 )
 
 // 密码加密
@@ -330,4 +331,26 @@ func GetRefundNum() (number string) {
 	rand.Seed(time.Now().UnixNano())
 	number = "refund" + gconv.String(time.Now().UnixNano()) + gconv.String(rand.Intn(1000))
 	return
+}
+
+// TransTo62 将十进制转换为62进制  0-9a-zA-Z 六十二进制
+func TransTo62(id int64, source string) string {
+	charset := "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	var shortUrl []byte
+	for {
+		var result byte
+		number := id % 62
+		result = charset[number]
+		var tmp []byte
+		tmp = append(tmp, result)
+		shortUrl = append(tmp, shortUrl...)
+		id = id / 62
+		if id == 0 {
+			break
+		}
+	}
+	if source == "ad_pull_new_user" || source == "ad_merge" {
+		return source + string(shortUrl)
+	}
+	return string(shortUrl)
 }

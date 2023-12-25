@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/goflyfox/gtoken/gtoken"
+	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"
 	"github.com/gogf/gf/v2/text/gstr"
 	"github.com/gogf/gf/v2/util/gconv"
@@ -19,19 +21,19 @@ import (
 // StartFrontendGToken 前台登录gtoken相关
 func StartFrontendGToken() (gfFrontendToken *gtoken.GfToken, err error) {
 	gfFrontendToken = &gtoken.GfToken{
-		CacheMode:       consts.CacheModeRedis,
-		ServerName:      consts.BackendServerName,
-		LoginPath:       "/login",
-		LoginBeforeFunc: loginFuncFrontend,
-		LoginAfterFunc:  loginAfterFuncFrontend,
-		LogoutPath:      "/user/logout",
-		//AuthPaths:        g.SliceStr{"/backend/admin/info"},
-		//AuthExcludePaths: g.SliceStr{"/admin/user/info", "/admin/system/user/info"}, // 不拦截路径 /user/info,/system/user/info,/system/user,
-		AuthAfterFunc: authAfterFuncFrontend,
-		MultiLogin:    consts.FrontendMultiLogin,
+		CacheMode:        consts.CacheModeRedis,
+		ServerName:       consts.BackendServerName,
+		LoginPath:        "/login",
+		LoginBeforeFunc:  loginFuncFrontend,
+		LoginAfterFunc:   loginAfterFuncFrontend,
+		LogoutPath:       "/logout",
+		AuthPaths:        g.SliceStr{"/*"},
+		AuthExcludePaths: g.SliceStr{"/app/*", "/notify/*"}, // 不拦截路径
+		AuthAfterFunc:    authAfterFuncFrontend,
+		MultiLogin:       consts.FrontendMultiLogin,
 	}
-	//todo 去掉全局校验，只用cmd中的路由组校验
-	//err = gfAdminToken.Start()
+	//去掉全局校验，只用cmd中的路由组校验
+	err = gfFrontendToken.Start()
 	return
 }
 
@@ -39,7 +41,6 @@ func StartFrontendGToken() (gfFrontendToken *gtoken.GfToken, err error) {
 func loginFuncFrontend(r *ghttp.Request) (string, interface{}) {
 	name := r.Get("name").String()
 	password := r.Get("password").String()
-	ctx := context.TODO()
 
 	if name == "" || password == "" {
 		r.Response.WriteJson(gtoken.Fail(consts.ErrLoginFailMsg))
@@ -47,13 +48,17 @@ func loginFuncFrontend(r *ghttp.Request) (string, interface{}) {
 	}
 
 	//验证账号密码是否正确
-	userInfo := entity.UserInfo{}
-	err := dao.UserInfo.Ctx(ctx).Where(dao.UserInfo.Columns().Username, name).Scan(&userInfo)
+	userInfo := &entity.UserInfo{}
+	err := dao.UserInfo.Ctx(r.GetCtx()).Where(dao.UserInfo.Columns().Username, name).Scan(&userInfo)
 	if err != nil {
 		r.Response.WriteJson(gtoken.Fail(consts.ErrLoginFailMsg))
 		r.ExitAll()
 	}
-	if utility.EncryptPassword(password, "fuya_666") != userInfo.Password {
+	if userInfo == nil {
+		r.Response.WriteJson(gtoken.Fail(consts.ErrLoginFailMsg))
+		r.ExitAll()
+	}
+	if utility.EncryptPassword(password, userInfo.Username) != userInfo.Password {
 		r.Response.WriteJson(gtoken.Fail(consts.ErrLoginFailMsg))
 		r.ExitAll()
 	}
@@ -99,11 +104,35 @@ func authAfterFuncFrontend(r *ghttp.Request, respData gtoken.Resp) {
 		response.Auth(r)
 		return
 	}
-	//todo 这里可以写账号前置校验、是否被拉黑、有无权限等逻辑
+	//这里可以写账号前置校验、是否被拉黑、有无权限等逻辑
+
+	//AppName:             r.Header.Get("app-name"),
+	//	AppChannel:          r.Header.Get("app-channel"),       //app渠道
+	//		ClientLanguage:      r.Header.Get("client-language"),   //用户语言
+	//		DeviceId:            deviceId,                          //设备号
+	//		AppVersion:          r.Header.Get("app-v"),             //app版本
+	//		ClientMode:          r.Header.Get("client-m"),          //手机型号
+	//		AppVersionCode:      gconv.Int(r.Header.Get("app-vc")), //手机型号
+	//		ClientSystemVersion: r.Header.Get("client-os-v"),       //手机系统版本
+	//		ClientIP:            utils.GetRemoteClientIp(r),        //请求Ip
+	//		ClientOs:            client,                            //1为安卓 2为ios
+	client := 1
+	clientOs := r.Header.Get("client-os")
+	if len(clientOs) > 0 {
+		client, _ = strconv.Atoi(clientOs)
+	}
+
 	r.SetCtxVar(consts.CtxUserId, userInfo.UserId)
 	r.SetCtxVar(consts.CtxUserName, userInfo.Username)
-	r.SetCtxVar(consts.CtxUserAvatar, userInfo.Portrait)
-	//r.SetCtxVar(consts.CtxUserSex, userInfo.Gender)
-	r.SetCtxVar(consts.CtxUserLiveState, userInfo.LiveState)
+	r.SetCtxVar(consts.CtxAppName, r.Header.Get("app-name"))                 //app名称
+	r.SetCtxVar(consts.CtxAppChannel, r.Header.Get("app-channel"))           //app渠道
+	r.SetCtxVar(consts.CtxClientLanguage, r.Header.Get("client-language"))   //用户语言
+	r.SetCtxVar(consts.CtxDeviceId, r.Header.Get("device-id"))               //设备号
+	r.SetCtxVar(consts.CtxAppVersion, r.Header.Get("app-v"))                 //app版本
+	r.SetCtxVar(consts.CtxAppVersionCode, gconv.Int(r.Header.Get("app-vc"))) //手机型号
+	r.SetCtxVar(consts.CtxClientMode, r.Header.Get("client-m"))              //手机型号
+	r.SetCtxVar(consts.CtxClientSystemVersion, r.Header.Get("client-os-v"))  //手机系统版本
+	r.SetCtxVar(consts.CtxClientIP, r.GetClientIp())                         //请求Ip
+	r.SetCtxVar(consts.CtxClientOs, client)                                  //1为安卓 2为ios
 	r.Middleware.Next()
 }
