@@ -5,7 +5,11 @@
 package dao
 
 import (
+	"context"
+	"database/sql"
+
 	"fuya-ark/internal/dao/internal"
+	"fuya-ark/internal/model/entity"
 )
 
 // internalInviterInfoDao is internal type for wrapping internal DAO implements.
@@ -25,3 +29,31 @@ var (
 )
 
 // Fill with you ideas below.
+
+func (m *inviterInfoDao) GetInviterInfo(ctx context.Context, inviterId int64) (*entity.InviterInfo, error) {
+	var res *entity.InviterInfo
+	err := m.DB().Model().Ctx(ctx).
+		Where("user_id", inviterId).
+		Scan(&res)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (m *inviterInfoDao) SaveInviterInfo(ctx context.Context) (int64, error) {
+	res, err := m.DB().Model().Ctx(ctx).Data(m).InsertAndGetId()
+	if err != nil && err != sql.ErrNoRows {
+		return 0, err
+	}
+	return res, nil
+}
+
+func (m *inviterInfoDao) SetCount(ctx context.Context, id uint) interface{} {
+	if _, err := m.DB().Model().Ctx(ctx).
+		Where("id", id).
+		Increment("invite_user_count", 1); err != nil {
+		return err
+	}
+	return nil
+}

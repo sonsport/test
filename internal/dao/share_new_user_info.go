@@ -6,10 +6,19 @@ package dao
 
 import (
 	"context"
+	"database/sql"
+	"errors"
+	"time"
 
+	"github.com/gogf/gf/v2/database/gdb"
 	"github.com/gogf/gf/v2/frame/g"
+	"github.com/gogf/gf/v2/util/gconv"
 
+	"fuya-ark/internal/consts"
 	"fuya-ark/internal/dao/internal"
+	"fuya-ark/internal/model"
+	"fuya-ark/internal/model/do"
+	"fuya-ark/internal/model/entity"
 )
 
 // internalShareNewUserInfoDao is internal type for wrapping internal DAO implements.
@@ -30,12 +39,217 @@ var (
 
 // Fill with you ideas below.
 
+func (m *shareNewUserInfoDao) GetShareNewUserInfo(ctx context.Context, userId, ownerUserId int64) (shareNewUserInfo *entity.ShareNewUserInfo, err error) {
+	db := m.DB().Model().Ctx(ctx)
+	if ownerUserId > 0 {
+		db.Where("owner_user_id = ?", ownerUserId)
+	}
+	err = db.Where("user_id = ?", userId).Scan(&shareNewUserInfo)
+	return shareNewUserInfo, err
+}
+
+func (m *shareNewUserInfoDao) GetShareNewUserInfoBySmId(ctx context.Context, smId string) (*entity.ShareNewUserInfo, error) {
+	var shareNewUserInfo *entity.ShareNewUserInfo
+	err := m.DB().Model().Ctx(ctx).Cache(
+		gdb.CacheOption{
+			Duration: time.Hour,
+			Name:     consts.MysqlInvitedInfoByMid + smId,
+		}).Where("smid = ?", smId).
+		Scan(&shareNewUserInfo)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	return shareNewUserInfo, nil
+}
+
+// GetInfoByOwnerUserId 通过邀请者id 获取已注册的拉新用户列表
+func (m *shareNewUserInfoDao) GetInfoByOwnerUserId(ctx context.Context, ownerUserId int64, offset, size int) ([]*entity.ShareNewUserInfo, error) {
+	var shareNewUserInfo []*entity.ShareNewUserInfo
+	err := m.DB().Model().Ctx(ctx).
+		Cache(gdb.CacheOption{
+			Duration: time.Minute, Name: consts.MysqlInvitedInfoByOwnerUserId + gconv.String(ownerUserId) + ":" + gconv.String(offset),
+		}).Where("owner_user_id = ?", ownerUserId).
+		OrderDesc("create_time").
+		Limit(offset, size).
+		Scan(&shareNewUserInfo)
+	return shareNewUserInfo, err
+}
+
+func (m *shareNewUserInfoDao) SaveShareNewUserInfo(ctx context.Context, shareNewUserInfo do.ShareNewUserInfo) error {
+	if _, err := m.DB().Model().Ctx(ctx).Data(shareNewUserInfo).Insert(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ShareSuccessRank 查询分享者获得的收益明细
+func (m *shareNewUserInfoDao) ShareSuccessRank(ctx context.Context, page int) ([]*model.ShareSuccessRankRes, error) {
+	if page > 5 {
+		page = 5
+	}
+	limit := 10
+	offset := page * limit
+	list := make([]*model.ShareSuccessRankRes, 0)
+	sqlStr := `
+		select share_id as user_id,i.nickname,i.portrait,sum(if(sni.is_old_user=1,2000,1000))as diamonds
+		from share_new_user_info sni
+		left join user_info i on i.user_id=sni.share_id
+		where sni.share_id>1330436
+		group by sni.share_id
+		order by diamonds desc
+		limit ? offset ?
+	`
+	resData, _ := m.DB().Query(ctx, sqlStr, limit, offset)
+	err := resData.Structs(&list)
+	return list, err
+}
+
+// ShareSuccessDiamondsRank 查询分享者获得的收益明细
+func (m *shareNewUserInfoDao) ShareSuccessDiamondsRank(ctx context.Context, userId int64) int {
+	sqlStr := `
+		select sum(if(sni.is_old_user=1,2000,1000))as diamonds
+		from share_new_user_info sni
+		where sni.share_id=? 
+		  and status=2
+	`
+	resData, _ := m.DB().Ctx(ctx).GetOne(ctx, sqlStr, userId)
+	gmap := resData.GMap()
+	return gmap.GetVar("diamonds").Int()
+}
+
+// GetShareNewUserInfoByOwnerUserId 查询分享者获得的收益明细
+func (m *shareNewUserInfoDao) GetShareNewUserInfoByOwnerUserId(ctx context.Context,
+	userId int64, offset, size int) ([]*model.ShareNewUserInfoVo, error) {
+	list := make([]*model.ShareNewUserInfoVo, 0)
+	err := m.DB().Model().Ctx(ctx).
+		LeftJoin(" user_info u", "share_new_user_info.user_id=u.user_id").
+		Where("owner_user_id=? ", userId).
+		Fields("share_new_user_info.*,u.nickname").
+		Order("id DESC").
+		Limit(offset, size).
+		Scan(&list)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+
+	return list, nil
+}
+
+// SetInvitedInfoStatus 设置分享拉新，邀请者已经获得拉新奖励，不能重复获取
+func (m *shareNewUserInfoDao) SetInvitedInfoStatus(ctx context.Context, userId int64, status int64, tx gdb.TX) error {
+	mode := m.DB().Model().Ctx(ctx)
+	if tx != nil {
+		mode.TX(tx)
+	}
+	_, err := mode.
+		Cache(gdb.CacheOption{
+			Duration: -1,
+			Name:     consts.MysqlInvitedInfoByUid + gconv.String(userId),
+		}).
+		Data("status", status).
+		Where("user_id", userId).
+		Update()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *shareNewUserInfoDao) UpdateWatchLiveTime(ctx context.Context, userId int64, watchTime int) error {
+
+	_, err := m.DB().Model().Ctx(ctx).
+		Ctx(ctx).Cache(
+		gdb.CacheOption{Duration: -1, Name: consts.MysqlInvitedInfoByUid + gconv.String(userId)}).
+		Data("watch_live_time", watchTime).
+		Where("user_id", userId).
+		Update()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *shareNewUserInfoDao) UpdateWatchLiveRewards(ctx context.Context, userId int64, watchLiveRewards int) error {
+	_, err := m.DB().Model().Ctx(ctx).
+		Cache(gdb.CacheOption{Duration: -1, Name: consts.MysqlInvitedInfoByUid + gconv.String(userId)}).
+		Data("watch_live_rewards", watchLiveRewards).
+		Where("user_id", userId).
+		Update()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *shareNewUserInfoDao) SameTheIP(ctx context.Context, strIp string) int {
+	count, err := m.DB().Model().Ctx(ctx).Where("ip", strIp).Count()
+	if err != nil {
+		g.Log().Errorf(ctx, "GetInvitedInfoByIP Err = %v", err)
+		return 0
+	}
+	return count
+}
+
+func (m *shareNewUserInfoDao) SimilarTheIP(ctx context.Context, userId int64, strIp string) int {
+	curDate := time.Now().Unix()
+	count, err := m.DB().Model().Ctx(ctx).
+		Where("owner_user_id = ? and create_time > ?", userId, curDate-3600*24).
+		WhereLike("ip", strIp).Count()
+	if err != nil {
+		g.Log().Errorf(ctx, "GetInvitedInfoByIP Err = %v", err)
+		return 0
+	}
+	return count
+}
+
+func (m *shareNewUserInfoDao) SimilarThePhone(ctx context.Context, userId int64) []string {
+	var data []entity.ShareNewUserInfo
+	var deviceList []string
+
+	curDate := time.Now().Unix()
+	err := m.DB().Model().Ctx(ctx).
+		Where("owner_user_id = ? and create_time > ?", userId, curDate-3600*24).
+		OrderDesc("create_time").
+		Limit(5).
+		Scan(&data)
+	if err != nil {
+		g.Log().Errorf(ctx, "GetInvitedInfoByIP Err = %v", err)
+		return []string{}
+	}
+	for _, info := range data {
+		if len(info.DeviceName) > 0 {
+			deviceList = append(deviceList, info.DeviceName)
+		}
+	}
+	return deviceList
+}
+
 func (m *shareNewUserInfoDao) GetInvitedUserCountByTime(ctx context.Context, userId int64, startTime int64) (int, error) {
-	count, err := g.DB().Model(shareNewUserInfoDao.Table).Ctx(ctx).
+	count, err := m.DB().Model().Ctx(ctx).
 		Where("owner_user_id = ? and create_time > ?", userId, startTime).Count()
 	if err != nil {
 		g.Log().Errorf(ctx, "GetInvitedInfoByIP Err = %v", err)
 		return 0, err
 	}
 	return count, nil
+}
+
+func (m *shareNewUserInfoDao) GetCountByUser(ctx context.Context, userId, shareId int64) int {
+	count, err := m.DB().Model().Ctx(ctx).
+		Where("user_id = ? and share_id = ?", userId, shareId).Count()
+	if err != nil {
+		g.Log().Errorf(ctx, "GetInvitedInfoByIP Err = %v", err)
+		return 1
+	}
+	return count
+}
+
+func (m *shareNewUserInfoDao) GetByUserId(ctx context.Context, userId int64) (res *entity.ShareNewUserInfo) {
+	err := m.DB().Model().Ctx(ctx).
+		Where("user_id = ?", userId).OrderDesc("id").Scan(&res)
+	if err != nil {
+		g.Log().Errorf(ctx, "GetByUserId Err = %v", err)
+		return nil
+	}
+	return res
 }

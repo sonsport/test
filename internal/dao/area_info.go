@@ -5,7 +5,15 @@
 package dao
 
 import (
+	"context"
+	"strings"
+	"time"
+
+	"github.com/gogf/gf/v2/database/gdb"
+
+	"fuya-ark/internal/consts"
 	"fuya-ark/internal/dao/internal"
+	"fuya-ark/internal/model/entity"
 )
 
 // internalAreaInfoDao is internal type for wrapping internal DAO implements.
@@ -25,3 +33,34 @@ var (
 )
 
 // Fill with you ideas below.
+
+// GetByTitleCn 根据国家名称返回地区
+func (m *areaInfoDao) GetByTitleCn(ctx context.Context, lang, titleCn string) (area *entity.AreaInfo) {
+	if strings.EqualFold(lang, "id") {
+		titleCn = consts.IndonesiaCn
+	} else if strings.EqualFold(lang, "ms") {
+		titleCn = consts.MalaysiaCn
+	}
+	_ = m.DB().Ctx(ctx).Model().Cache(
+		gdb.CacheOption{
+			Duration: time.Hour * 12,
+			Name:     consts.MysqlAreaByTitle + titleCn,
+			Force:    false,
+		}).
+		Where("title_cn=?", titleCn).Scan(&area)
+	return
+}
+
+// GetByTitleCnAndIsShow 根据国家名称返回地区
+func (m *areaInfoDao) GetByTitleCnAndIsShow(ctx context.Context, titleCn string) (area *entity.AreaInfo) {
+	_ = m.DB().Ctx(ctx).Model().Cache(
+		gdb.CacheOption{
+			Duration: time.Hour * 12,
+			Name:     consts.MysqlAreaByTitle + titleCn,
+			Force:    false,
+		}).
+		Where("title_cn=?", titleCn).
+		Where("is_show=?", 1).
+		Scan(&area)
+	return
+}

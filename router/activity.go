@@ -8,7 +8,7 @@ import (
 )
 
 func InitActivityRouter(s *ghttp.RouterGroup) {
-	s.Group("/activity", func(group *ghttp.RouterGroup) {
+	s.Group("/inviter", func(group *ghttp.RouterGroup) {
 		//获取分享渠道及分享链接
 		group.GET("/share/channels", BindRequest(model.ShareChannelsInput{}).Do(controller.Activity.ShareChannels))
 		//分享登录绑定
@@ -93,7 +93,7 @@ func InitActivityRouter(s *ghttp.RouterGroup) {
 	})
 
 	// 活动中心配置
-	//s.Group("/activity-center", func(group *ghttp.RouterGroup) {
+	//s.Group("/inviter-center", func(group *ghttp.RouterGroup) {
 	//	//活动配置
 	//	group.GET("/config", BindRequest(base.EmptyReq{}).Do(srv.GetActivityCenterConfig))
 	//	//活动配置列表

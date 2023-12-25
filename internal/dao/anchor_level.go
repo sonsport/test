@@ -5,7 +5,10 @@
 package dao
 
 import (
+	"context"
+
 	"fuya-ark/internal/dao/internal"
+	"fuya-ark/internal/model"
 )
 
 // internalAnchorLevelDao is internal type for wrapping internal DAO implements.
@@ -25,3 +28,57 @@ var (
 )
 
 // Fill with you ideas below.
+
+// IsALevelAnchor 判断是否为A类主播
+func (m *anchorLevelDao) IsALevelAnchor(ctx context.Context, userId int64) (count int, err error) {
+	return m.DB().Ctx(ctx).Model().Where("user_id", userId).
+		Where("state", 1).WhereIn("level", []string{"A", "AA"}).
+		Count()
+}
+
+// RoomIsALevelAnchor 判断房间是否为A类主播
+func (m *anchorLevelDao) RoomIsALevelAnchor(ctx context.Context, roomId string) (count int, err error) {
+	sqlStr := `select count(al.id) 
+			   from anchor_level al left join room_live rl on rl.user_id=al.user_id 
+               where rl.room_id=? and al.state=1 and al.level in (?)`
+	return m.DB().Ctx(ctx).GetCount(ctx, sqlStr, roomId, []string{"A", "AA"})
+}
+
+// GetCountByGuildId 判断是工会是否有A类主播
+func (m *anchorLevelDao) GetCountByGuildId(ctx context.Context, guildUserId int64) (count int, err error) {
+	sqlStr := `select count(1) from anchor_level al 
+                left join guild_anchor ga on al.user_id=ga.user_id
+                left join guild_info gi on ga.guild_id=gi.id
+                where gi.user_id=? and al.level='AA' 
+                  and ga.status=1 and gi.status=1 and al.state=1`
+	count, err = m.DB().Ctx(ctx).GetCount(ctx, sqlStr, guildUserId)
+	return count, err
+}
+
+// GetAllALevelAnchorInfos 获取所有a类主播
+func (m *anchorLevelDao) GetAllALevelAnchorInfos(ctx context.Context, startUnix, endUnix int64, startStr, endStr string) (map[int64]*model.ALevelAnchorInfo, error) {
+	var data []*model.ALevelAnchorInfo
+	sqlStr := `
+			select 
+				al.user_id ,
+				al.create_time ,
+				al.level,
+				ifnull(sum(cads.effect_live_time),0) as effect_live_time , 
+				sum(if (cads.effect_live_time>=7200,1,0)) as effect_day ,
+				count(if (cads.effect_live_time>=14400,cads.user_id,null)) as reward_day_num,
+				(select count(fi.id) 
+				 from feed_info fi 
+				 where fi.user_id=al.user_id 
+				 and create_time between ? and ? and fi.state=1) as feed_num
+			from anchor_level al 
+			left join charm_anchor_day_statistics cads on al.user_id =cads .user_id and cads.statistics_time between ? and ?
+			where  al.level in ('A','AA') and al.state=1 and al.create_time <=?
+			group by al.user_id ,al.create_time,al.level
+`
+	err := m.DB().Ctx(ctx).GetScan(ctx, &data, sqlStr, startUnix, endUnix, startStr, endStr, endUnix)
+	res := make(map[int64]*model.ALevelAnchorInfo)
+	for _, v := range data {
+		res[v.UserId] = v
+	}
+	return res, err
+}

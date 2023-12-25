@@ -10,8 +10,8 @@ import (
 	goredislib "github.com/redis/go-redis/v9"
 
 	"fuya-ark/internal/consts"
-	"fuya-ark/internal/router"
 	"fuya-ark/internal/service"
+	"fuya-ark/router"
 
 	"github.com/gogf/gf/v2/frame/g"
 	"github.com/gogf/gf/v2/net/ghttp"

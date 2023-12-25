@@ -364,28 +364,7 @@ const OneHoursSeconds = 60 * 60             //一小时的秒
 const TwoHoursSeconds = OneHoursSeconds * 2 //两小时的秒
 
 const (
-	BoardUserSingleByDay   = 1 //单个主播-用户贡献榜 - 天榜
-	BoardUserSingleByWeek  = 2 //单个主播-用户贡献榜 周榜
-	BoardUserSingleByMonth = 3 //单个主播-用户贡献榜 月榜
-	BoardUserSingleByAll   = 4 //单个主播-用户贡献榜 总榜
-
-	BoardUserPlatformByDay   = 11 // 平台-用户贡献榜-天榜
-	BoardUserPlatformByWeek  = 12 // 平台-用户贡献榜-周榜
-	BoardUserPlatformByMonth = 13 //平台-用户贡献榜-月榜
-	BoardUserPlatformByAll   = 14 //平台-用户贡献榜-总榜
-
-	BoardAuthorPlatformByDay   = 21 //平台-主播收益榜-天榜
-	BoardAuthorPlatformByWeek  = 22 //平台-主播收益榜-周榜
-	BoardAuthorPlatformByMonth = 23 //平台-主播收益榜-月榜
-	BoardAuthorPlatformByAll   = 24 //平台-主播收益榜-总榜
-
-	BoardAuthorDiamondPlatformByDay   = 41 //平台-主播钻石流水榜-天榜
-	BoardAuthorDiamondPlatformByWeek  = 42 //平台-主播钻石流水榜-周榜
-	BoardAuthorDiamondPlatformByMonth = 43 //平台-主播钻石流水榜-月榜
-	BoardAuthorDiamondPlatformByAll   = 44 //平台-主播钻石流水榜-总榜
-
 	BoardUserByRoom = 31 //直播间-用户贡献榜
-
 )
 
 // StatisticsGameKeys 统计游戏

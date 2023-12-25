@@ -1,4 +1,4 @@
-package v1
+package model
 
 type CommonPaginationReq struct {
 	Page int `json:"page" in:"query" d:"1"  v:"min:0#分页号码错误"     dc:"分页号码，默认1"`

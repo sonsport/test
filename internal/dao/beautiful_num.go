@@ -5,7 +5,17 @@
 package dao
 
 import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/gogf/gf/v2/database/gdb"
+	"github.com/gogf/gf/v2/frame/g"
+
 	"fuya-ark/internal/dao/internal"
+	"fuya-ark/internal/model"
+	"fuya-ark/internal/model/do"
+	"fuya-ark/internal/model/entity"
 )
 
 // internalBeautifulNumDao is internal type for wrapping internal DAO implements.
@@ -25,3 +35,189 @@ var (
 )
 
 // Fill with you ideas below.
+
+func (m *beautifulNumDao) SaveBeautifulNumInfo(ctx context.Context, info do.BeautifulNum) error {
+	info.CreateTime = time.Now().Unix()
+	info.UpdateTime = time.Now().Unix()
+	_, err := m.DB().Ctx(ctx).Model().
+		Data(info).
+		Save()
+	return err
+}
+
+func (m *beautifulNumDao) GetBeautifulNumList(ctx context.Context, isMy int, classifyId, userId int64) (data []*do.BeautifulNum) {
+	db := m.DB().Ctx(ctx).Model()
+	if isMy == 1 {
+		db.Where("user_id", userId).
+			WhereGT("reclaim_time", time.Now().Unix())
+	} else {
+		db.Where("shop_status", 1)
+	}
+	if classifyId > 0 {
+		db.Where("classify_id", classifyId)
+	}
+	err := db.OrderAsc("sort_weight").Scan(&data)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+func (m *beautifulNumDao) GetBeautifulNumById(ctx context.Context, id int64) (data *do.BeautifulNum) {
+	err := m.DB().Ctx(ctx).Model().Where("id", id).OrderDesc("sort_weight").Scan(&data)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+// UpdateUserPurchase 更新用户购买
+func (m *beautifulNumDao) UpdateUserPurchase(ctx context.Context, numId, recipientId, day int64, oldExpirationTime int64, tx gdb.TX) error {
+	expirationTime := time.Unix(time.Now().Unix(), 0).AddDate(0, 0, int(day))
+	reclaimTime := expirationTime.AddDate(0, 0, 30)
+	data := g.Map{
+		"user_id":         recipientId,
+		"expiration_time": expirationTime.Unix(),
+		"reclaim_time":    reclaimTime.Unix(),
+		"update_time":     time.Now().Unix(),
+		"shop_status":     2,
+	}
+	if oldExpirationTime == 0 { //不是续费、清空经验 不佩戴
+		data["is_wear"] = 2
+		data["experience"] = 0
+	} else if oldExpirationTime > time.Now().Unix() { //未过期、续费
+		expirationTime = time.Unix(oldExpirationTime, 0).AddDate(0, 0, int(day))
+		reclaimTime = expirationTime.AddDate(0, 0, 30)
+		data["expiration_time"] = expirationTime.Unix()
+		data["reclaim_time"] = expirationTime.Unix()
+	}
+	sqlResult, err := m.DB().Ctx(ctx).Model().TX(tx).
+		Data(data).Where("id", numId).
+		Update()
+	count, err := sqlResult.RowsAffected()
+	if err != nil || count == 0 {
+		return fmt.Errorf("UpdateUserPurchase %v", err)
+	}
+	return nil
+}
+
+// UpdateExperience 更新靓号经验
+func (m *beautifulNumDao) UpdateExperience(ctx context.Context, numId, experience int64) error {
+	sqlResult, err := m.DB().Ctx(ctx).Model().
+		Where("id", numId).
+		Increment("experience", experience)
+	count, err := sqlResult.RowsAffected()
+	if err != nil || count == 0 {
+		return fmt.Errorf("UpdateExperience %v", err)
+	}
+	return nil
+}
+
+// UpdateIsWearById 更新用户佩戴
+func (m *beautifulNumDao) UpdateIsWearById(ctx context.Context, userId, numId, isWear int64) error {
+	if isWear == 1 { //下架其他靓号
+		m.DB().Ctx(ctx).Model().
+			Data(g.Map{
+				"update_time": time.Now().Unix(),
+				"is_wear":     2,
+			}).
+			Where("is_wear", 1).
+			Where("user_id", userId).
+			Update()
+	}
+	sqlResult, err := m.DB().Ctx(ctx).Model().
+		Data(g.Map{
+			"update_time": time.Now().Unix(),
+			"is_wear":     isWear,
+		}).
+		Where("id", numId).
+		Where("user_id", userId).
+		Update()
+	count, err := sqlResult.RowsAffected()
+	if err != nil || count == 0 {
+		return fmt.Errorf("UpdateUserPurchase %v", err)
+	}
+	return nil
+}
+
+// GetByUserId 获取佩戴的靓号
+func (m *beautifulNumDao) GetByUserId(ctx context.Context, userId int64) (data *model.BeautifulNumVo) {
+	err := m.DB().Ctx(ctx).Model().
+		Where("is_wear", 1).
+		WhereGT("expiration_time", time.Now().Unix()).
+		Where("user_id", userId).
+		Fields("id,super_id,icon_url,experience,expiration_time,reclaim_time").
+		Scan(&data)
+	if err != nil {
+		return nil
+	}
+	return
+}
+
+// GetBySuperId 获取佩戴的靓号
+func (m *beautifulNumDao) GetBySuperId(ctx context.Context, superId int64) (data *entity.BeautifulNum) {
+	err := m.DB().Ctx(ctx).Model().
+		Where("is_wear", 1).
+		WhereGT("expiration_time", time.Now().Unix()).
+		Where("super_id", superId).
+		Scan(&data)
+	if err != nil {
+		return nil
+	}
+	return
+}
+
+func (m *beautifulNumDao) GetBeautifulNum(ctx context.Context, id int64) (data *do.BeautifulNum) {
+	err := m.DB().Ctx(ctx).Model().
+		Where("id", id).
+		Scan(&data)
+	if err != nil {
+		return nil
+	}
+	return
+}
+
+func (m *beautifulNumDao) GetBeautifulNumRank(ctx context.Context, id int64) int {
+	sqlStr := `
+			SELECT
+				count(b.experience) ranking
+			FROM
+				beautiful_num a,
+				beautiful_num b
+			WHERE
+				a.experience <= b.experience
+				AND a.id = ?
+				and b.reclaim_time>?
+			ORDER BY
+				b.experience DESC`
+	res, err := m.DB().Ctx(ctx).GetOne(ctx, sqlStr, id, time.Now().Unix())
+	if err != nil {
+		return -1
+	}
+	return res.GMap().GetVar("ranking").Int()
+}
+
+func (m *beautifulNumDao) UpdateBeautifulNumExperience(ctx context.Context, id int64, experience int64) {
+	sqlResult, err := m.DB().Ctx(ctx).Model().
+		Data(g.Map{
+			"update_time": time.Now().Unix(),
+			"experience":  experience,
+		}).
+		Where("id", id).
+		Update()
+	count, err := sqlResult.RowsAffected()
+	if err != nil || count == 0 {
+		g.Log().Warning(ctx, fmt.Errorf("UpdateBeautifulNumExperience %v", err))
+	}
+}
+
+func (m *beautifulNumDao) GetListByExpirationTime(ctx context.Context, startTime, endTime int64) (data []*do.BeautifulNum) {
+	err := m.DB().Ctx(ctx).Model().
+		WhereBetween("expiration_time", startTime, endTime).
+		WhereGT("user_id", 0).
+		Scan(&data)
+	if err != nil {
+		return nil
+	}
+	return
+}

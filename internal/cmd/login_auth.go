@@ -10,9 +10,9 @@ import (
 	"github.com/gogf/gf/v2/text/gstr"
 	"github.com/gogf/gf/v2/util/gconv"
 
-	"fuya-ark/api/v1"
 	"fuya-ark/internal/consts"
 	"fuya-ark/internal/dao"
+	"fuya-ark/internal/model"
 	"fuya-ark/internal/model/entity"
 	"fuya-ark/utility"
 	"fuya-ark/utility/response"
@@ -83,7 +83,7 @@ func loginAfterFuncFrontend(r *ghttp.Request, respData gtoken.Resp) {
 		if err != nil {
 			return
 		}
-		data := &v1.LoginRes{
+		data := &model.LoginOutput{
 			Type:     consts.TokenType,
 			Token:    respData.GetString("token"),
 			ExpireIn: consts.GTokenExpireIn, //单位秒,
@@ -105,17 +105,6 @@ func authAfterFuncFrontend(r *ghttp.Request, respData gtoken.Resp) {
 		return
 	}
 	//这里可以写账号前置校验、是否被拉黑、有无权限等逻辑
-
-	//AppName:             r.Header.Get("app-name"),
-	//	AppChannel:          r.Header.Get("app-channel"),       //app渠道
-	//		ClientLanguage:      r.Header.Get("client-language"),   //用户语言
-	//		DeviceId:            deviceId,                          //设备号
-	//		AppVersion:          r.Header.Get("app-v"),             //app版本
-	//		ClientMode:          r.Header.Get("client-m"),          //手机型号
-	//		AppVersionCode:      gconv.Int(r.Header.Get("app-vc")), //手机型号
-	//		ClientSystemVersion: r.Header.Get("client-os-v"),       //手机系统版本
-	//		ClientIP:            utils.GetRemoteClientIp(r),        //请求Ip
-	//		ClientOs:            client,                            //1为安卓 2为ios
 	client := 1
 	clientOs := r.Header.Get("client-os")
 	if len(clientOs) > 0 {

@@ -5,7 +5,23 @@
 package dao
 
 import (
+	"context"
+	"database/sql"
+	"errors"
+	"math/rand"
+	"time"
+
+	"github.com/gogf/gf/v2/database/gdb"
+	"github.com/gogf/gf/v2/frame/g"
+	"github.com/gogf/gf/v2/text/gstr"
+	"github.com/gogf/gf/v2/util/gconv"
+
+	"fuya-ark/internal/consts"
 	"fuya-ark/internal/dao/internal"
+	"fuya-ark/internal/model"
+	"fuya-ark/internal/model/entity"
+	"fuya-ark/internal/model/game"
+	"fuya-ark/utility/slice"
 )
 
 // internalUserInfoDao is internal type for wrapping internal DAO implements.
@@ -25,3 +41,669 @@ var (
 )
 
 // Fill with you ideas below.
+
+// HeartbeatApply 更新心跳包
+func (m *userInfoDao) HeartbeatApply(ctx context.Context, userId, timestamp int64) error {
+	if _, err := m.DB().Model().Ctx(ctx).
+		Data(g.Map{"last_heartbeat_at": timestamp}).
+		Where("user_id", userId).
+		Update(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// SaveUserInfo 新增用户
+func (m *userInfoDao) SaveUserInfo(ctx context.Context, info entity.UserInfo, tx gdb.TX) error {
+	db := m.DB().Model().Ctx(ctx).Data(info)
+	if tx != nil {
+		db.TX(tx)
+	}
+	if len(info.Username) == 0 {
+		//m.Username = nickname + grand.S(5, false)
+		db.FieldsEx("username")
+	}
+	lastInsertId, err := db.InsertAndGetId()
+	if err != nil {
+		return err
+	}
+	info.UserId = uint64(lastInsertId)
+	return nil
+}
+
+// GetUserById 根据用户id获取用户
+func (m *userInfoDao) GetUserById(ctx context.Context, userId int64) (userInfo *entity.UserInfo, err error) {
+	err = m.DB().Model().Ctx(ctx).Cache(
+		gdb.CacheOption{
+			Duration: time.Hour,
+			Name:     consts.MysqlUserInfo + gconv.String(userId),
+			Force:    false,
+		}).
+		Where("user_id", userId).Scan(&userInfo)
+	return userInfo, err
+}
+
+// GetUserByIdWithFields 根据用户id获取用户
+func (m *userInfoDao) GetUserByIdWithFields(ctx context.Context, userId int64, fields ...string) (userInfo *userInfoDao, err error) {
+	db := m.DB().Model().Ctx(ctx).
+		Where("user_id", userId)
+	if len(fields) > 0 {
+		s := gstr.Join(fields, ",")
+		db.Fields(s)
+	}
+	err = db.Scan(&userInfo)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+	return userInfo, nil
+}
+
+func (m *userInfoDao) GetUserInfoByLogin(ctx context.Context, userId int64) (userInfo *userInfoDao, err error) {
+	err = m.DB().Model().Ctx(ctx).
+		Where("user_id", userId).Scan(&userInfo)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+	return userInfo, nil
+}
+
+// GetUserInfoByIds 根据用户id批量获取用户
+func (m *userInfoDao) GetUserInfoByIds(ctx context.Context, ids []int64, isCache bool) ([]*entity.UserInfo, error) {
+	var userInfos []*entity.UserInfo
+	if len(ids) <= 0 {
+		return nil, nil
+	}
+	if isCache {
+		for _, id := range ids {
+			data, _ := m.GetUserById(ctx, id)
+			if data != nil {
+				userInfos = append(userInfos, data)
+			}
+		}
+		return userInfos, nil
+	}
+	err := m.DB().Model().Ctx(ctx).Where("user_id in (?)", ids).Scan(&userInfos)
+	return userInfos, err
+}
+
+// GetRobotInfoByIds 批量获取机器人信息
+func (m *userInfoDao) GetRobotInfoByIds(ctx context.Context, notExistUserIds []int64, limit int) ([]*entity.UserInfo, error) {
+	userIds, err := m.getRobotInfoAll(ctx)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	//随机
+	rand.Seed(time.Now().Unix())
+	rand.Shuffle(len(userIds), func(i, j int) { userIds[i], userIds[j] = userIds[j], userIds[i] })
+	g.Log().Debugf(ctx, "chyInfo 当前机器人总个数为 count = %v", len(userIds))
+	var userInfos []*entity.UserInfo
+	if len(notExistUserIds) > 0 {
+		sliceUtils := utility.NewSliceUtil()
+		userIds = sliceUtils.Difference(userIds, notExistUserIds)
+	}
+	if len(userIds) <= 0 {
+		return nil, nil
+	}
+	if len(userIds) <= limit {
+		userIds = userIds[0 : limit-1]
+	} else {
+		userIds = userIds[0:limit]
+	}
+	userInfos, _ = m.GetUserInfoByIds(ctx, userIds, true)
+	return userInfos, nil
+}
+
+func (m *userInfoDao) getRobotInfoAll(ctx context.Context) ([]int64, error) {
+	array, err := m.DB().Model().Ctx(ctx).
+		Cache(gdb.CacheOption{Duration: time.Hour * 240, Name: consts.MysqlUserInfoRobotUserId}).
+		Where("role", consts.UserRobot).
+		Fields("user_id").Array()
+	var userIds []int64
+	for _, value := range array {
+		userIds = append(userIds, value.Int64())
+	}
+	return userIds, err
+}
+
+// UpdateFollowAndFansCount 跟新用户关注和被关注
+func (m *userInfoDao) UpdateFollowAndFansCount(ctx context.Context, userId uint64, isFollow bool, followStatus int) error {
+	updateSql := ""
+
+	if followStatus == consts.FollowNone {
+		if isFollow {
+			updateSql = "follow_count=follow_count-1"
+		} else {
+			updateSql = "followed_count=followed_count-1"
+		}
+	} else {
+		if isFollow {
+			updateSql = "follow_count=follow_count+1"
+		} else {
+			updateSql = "followed_count=followed_count+1"
+		}
+	}
+
+	_, err := m.DB().Model().Ctx(ctx).
+		Data(updateSql).Where("user_id", userId).Update()
+	return err
+}
+
+func (m *userInfoDao) UpdateUserField(ctx context.Context, model *model.UpdateUserReq, userId int64) error {
+	dataMap := g.Map{}
+	if len(model.Nickname) > 0 {
+		dataMap["nickname"] = model.Nickname
+	}
+	if len(model.Password) > 0 {
+		dataMap["password"] = model.Password
+	}
+	if model.Gender != 0 {
+		dataMap["gender"] = model.Gender
+	}
+	if model.Birthday != 0 && model.Birthday > 0 {
+		dataMap["birthday"] = model.Birthday
+	}
+	if model.Height != 0 {
+		dataMap["height"] = model.Height
+	}
+	if model.Education != 0 {
+		dataMap["education"] = model.Education
+	}
+	if model.Industry != 0 {
+		dataMap["industry"] = model.Industry
+	}
+	if len(model.Intro) > 0 {
+		dataMap["intro"] = model.Intro
+	}
+	if len(model.Portrait) > 0 {
+		dataMap["portrait"] = model.Portrait
+	}
+	if len(model.WhatsApp) > 0 {
+		dataMap["whats_app"] = model.WhatsApp
+	}
+	if len(dataMap) == 0 {
+		return nil
+	}
+
+	_, err := m.DB().Model().Ctx(ctx).
+		Data(dataMap).
+		Cache(gdb.CacheOption{
+			Duration: -1,
+			Name:     consts.MysqlUserInfo + gconv.String(userId),
+		}).
+		Where("user_id", userId).
+		Update()
+	return err
+}
+
+func (m *userInfoDao) SearchUserByNickname(ctx context.Context, key string) ([]*model.InfoVo, error) {
+	var userInfoNameVos = make([]*model.InfoVo, 0, 10)
+	//查询昵称
+	err := m.DB().Model().Ctx(ctx).
+		WhereLike("nickname", key+"%").
+		Limit(10).
+		Scan(&userInfoNameVos)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+	//查询id
+	if gstr.IsNumeric(key) {
+		var userInfoUserIdVos = make([]*model.InfoVo, 0, 10)
+		var userIds []int64
+		userIds = append(userIds, gconv.Int64(key))
+		//查询一遍靓号
+		beautifulNumInfo := BeautifulNum.GetBySuperId(ctx, gconv.Int64(key))
+		if beautifulNumInfo != nil {
+			userIds = append(userIds, beautifulNumInfo.UserId)
+		}
+		err = m.DB().Model().Ctx(ctx).WhereIn("user_id", userIds).Scan(&userInfoUserIdVos)
+		if err != nil && err != sql.ErrNoRows {
+			return nil, err
+		}
+		userInfoNameVos = append(userInfoNameVos, userInfoUserIdVos...)
+	}
+	return userInfoNameVos, nil
+}
+
+// UpdateLiveStateByUserId 更新用户直播状态
+func (m *userInfoDao) UpdateLiveStateByUserId(ctx context.Context, userId int64, liveState int) error {
+	_, err := m.DB().Model().Ctx(ctx).
+		Cache(gdb.CacheOption{
+			Duration: -1,
+			Name:     consts.MysqlUserInfo + gconv.String(userId),
+		}).
+		Where("user_id = ?", userId).
+		Data("live_state = ?", liveState).
+		Update()
+	return err
+}
+
+// SearchUserByLiveState 根据直播状态获取用户
+func (m *userInfoDao) SearchUserByLiveState(ctx context.Context,
+	userId, liveState int64, battleType int, searchUserId int64) (userInfoNameVos []*model.InfoVo, err error) {
+	if battleType == consts.RoomLiveBattleTypeSpecify {
+		modelDb := g.DB().Ctx(ctx).Model("user_info u")
+		modelDb.Ctx(ctx).LeftJoin("user_focus uf", " u.user_id = uf.like_id").
+			Where("uf.user_id = ? AND uf.status = 2 ", userId).
+			//WhereNotIn("uf.user_id", userId).
+			Where("u.live_state = ? ", liveState).
+			Where("exists (select rl.user_id from room_live  rl where rl.status =1 and rl.room_type=0 and u.user_id=rl.user_id)").
+			Fields("u.*")
+		if searchUserId > 0 {
+			modelDb.Where("u.user_id=?", userId)
+		}
+		err = modelDb.Scan(&userInfoNameVos)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		sqlStr := `select ui.* from user_info ui 
+				left join guild_anchor ga on ui.user_id = ga.user_id
+				where ga.status=1 
+				and ui.live_state=?
+				and ui.user_id not in (?)
+			    and ui.role in(0,1)
+				and not exists (
+				    select black_list.blocked_Id from black_list 
+					where user_id =? and blocked_Id=ui.user_id and (end_time >? or end_time=0)
+				)
+				and exists (
+				    select rl.user_id from room_live  rl
+					where rl.status =1 and rl.room_type=0 and ui.user_id=rl.user_id
+				)
+		   `
+		if searchUserId > 0 {
+			sqlStr += "  and ui.user_id=  " + gconv.String(searchUserId)
+		}
+		sqlStr += "  limit 20"
+		res, err := m.DB().Ctx(ctx).Query(ctx, sqlStr, liveState, userId, userId, time.Now().Unix())
+		if err != nil {
+			return nil, err
+		}
+		err = res.Structs(&userInfoNameVos)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return
+}
+
+// GetNickNameByIds 根据用户id获取昵称
+func (m *userInfoDao) GetNickNameByIds(ctx context.Context, userId []int64) (data []*userInfoDao) {
+	err := m.DB().Model().Ctx(ctx).
+		Where("user_id in (?)", userId).
+		Fields("user_id,nickname,portrait").
+		Scan(&data)
+	if err != nil {
+		return nil
+	}
+	return
+}
+
+func (m *userInfoDao) UpdateUserRole(ctx context.Context, userId int64, role int, tx gdb.TX) error {
+	modelDb := m.DB().Model().Ctx(ctx)
+	if tx != nil {
+		modelDb.TX(tx)
+	}
+	_, err := modelDb.Data(g.Map{"role": role}).
+		Cache(gdb.CacheOption{
+			Duration: -1,
+			Name:     consts.MysqlUserInfo + gconv.String(userId),
+		}).
+		Where("user_id", userId).
+		Update()
+	return err
+
+}
+
+func (m *userInfoDao) UpdateUserClient(ctx context.Context, userId int64, ip, language, appName, appChannel, deviceId, version string) error {
+	dataMap := g.Map{}
+	if len(ip) > 0 {
+		dataMap["last_ip"] = ip
+	}
+	if len(language) > 0 {
+		dataMap["user_language"] = language
+	}
+	if len(appName) > 0 {
+		dataMap["app_name"] = appName
+	}
+	if len(appChannel) > 0 {
+		dataMap["app_channel"] = appChannel
+	}
+	if len(deviceId) > 0 {
+		dataMap["device_id"] = deviceId
+	}
+	if len(version) > 0 {
+		dataMap["app_version"] = version
+	}
+	_, err := m.DB().Model().Ctx(ctx).
+		Data(dataMap).
+		Cache(gdb.CacheOption{
+			Duration: -1,
+			Name:     consts.MysqlUserInfo + gconv.String(userId),
+		}).
+		Where("user_id", userId).
+		Update()
+	return err
+}
+
+func (m *userInfoDao) GetAllUser(ctx context.Context, tx gdb.TX, role int) ([]entity.UserInfo, error) {
+	userList := make([]entity.UserInfo, 0)
+	modelDb := m.DB().Model().Ctx(ctx)
+	if tx != nil {
+		modelDb.TX(tx)
+	}
+	err := modelDb.Fields("user_id").
+		Where("role", role).
+		Where("role!=6").
+		Scan(&userList)
+	return userList, err
+}
+
+func (m *userInfoDao) GetUserCountByTime(ctx context.Context, appChannel string, countType int, startTime, endTime int64) int {
+	modelDb := m.DB().Ctx(ctx).Model(m.Table(), "u").Ctx(ctx)
+	statisticsTime := time.Unix(startTime, 0).Local().Format("2006-01-02")
+	if countType == 1 { //统计新增用户
+		modelDb.WhereBetween("create_time", startTime, endTime)
+	} else if countType == 2 { //统计日活
+		modelDb.WhereBetween("last_heartbeat_at", startTime, endTime)
+		modelDb.Where("role", consts.UserNormal)
+	} else if countType == 3 { //统计付费人数
+		modelDb.LeftJoin("order_info o", "o.user_id=u.user_id")
+		modelDb.Where("o.state=1")
+		modelDb.WhereBetween("u.create_time", startTime, endTime)
+	} else if countType == 4 { //统计主播日活
+		modelDb.LeftJoin("guild_anchor ga", "ga.user_id=u.user_id")
+		modelDb.Where("ga.star_level>0 and ga.status=1")
+		modelDb.WhereBetween("u.last_heartbeat_at", startTime, endTime)
+	} else if countType == 5 { //主播开播数
+		modelDb.LeftJoin("guild_anchor ga", "ga.user_id=u.user_id")
+		modelDb.LeftJoin("room_live r", "r.user_id=u.user_id")
+		modelDb.Where("ga.star_level>0 and ga.status=1")
+		modelDb.Where("u.app_channel = ? and r.update_time between ? and ?", appChannel, startTime, endTime)
+		modelDb.Distinct()
+		count, err := modelDb.CountColumn("r.user_id")
+		if err != nil {
+			return -1
+		}
+		return count
+	} else if countType == 6 { //有效开播数
+		modelDb.LeftJoin("guild_anchor ga", "u.user_id=ga.user_id")
+		modelDb.LeftJoin("anchor_day_statistics ads", "u.user_id=ads.user_id")
+		modelDb.Where("u.app_channel = ? and ads.statistics_time=? and ga.status=1 and ga.star_level>0 and effect_live_time>1800", appChannel, statisticsTime)
+		modelDb.Distinct()
+		count, err := modelDb.CountColumn("ads.user_id")
+		if err != nil {
+			return -1
+		}
+		return count
+	} else if countType == 7 { //新增有效开播数
+		modelDb.LeftJoin("user_base_info ub", "ub.user_id=u.user_id")
+		modelDb.LeftJoin("anchor_day_statistics ads", "ub.user_id=ads.user_id")
+		modelDb.LeftJoin("guild_anchor ga", "u.user_id=ga.user_id")
+		modelDb.Where("u.app_channel = ? and ub.first_auth_time between ? and ? and ads.statistics_time=? and ga.status=1 and ga.star_level>0 and effect_live_time>1800", appChannel, startTime, endTime, statisticsTime)
+		modelDb.Distinct()
+		count, err := modelDb.CountColumn("ads.user_id")
+		if err != nil {
+			return -1
+		}
+		return count
+	} else if countType == 8 { //达标开播主播数
+		modelDb.LeftJoin("anchor_day_statistics ads", "u.user_id=ads.user_id")
+		modelDb.LeftJoin("guild_anchor ga", "u.user_id=ga.user_id")
+		modelDb.Where("u.app_channel = ? and ads.statistics_time = ? and ga.status=1 and ga.star_level>0 and is_effect_day = 1 ", appChannel, statisticsTime)
+		modelDb.Distinct()
+		count, err := modelDb.CountColumn("ads.user_id")
+		if err != nil {
+			return -1
+		}
+		return count
+	} else if countType == 9 { //标星主播开播数
+		modelDb.LeftJoin("anchor_day_statistics ads", "u.user_id=ads.user_id")
+		modelDb.LeftJoin("guild_anchor ga", "u.user_id=ga.user_id")
+		modelDb.Where("u.app_channel = ? and ads.statistics_time = ? and ga.status=1 and ga.star_level>0", appChannel, statisticsTime)
+		modelDb.Distinct()
+		count, err := modelDb.CountColumn("ads.user_id")
+		if err != nil {
+			return -1
+		}
+		return count
+	}
+	modelDb.Where("u.app_channel", appChannel)
+	count, err := modelDb.Count("u.user_id")
+	if err != nil {
+		return -1
+	}
+	return count
+}
+
+func (m *userInfoDao) GetLiveCountByHours(ctx context.Context, appChannel string, countType int, startTime, endTime int64) int {
+	modelDb := m.DB().Ctx(ctx).
+		Model(m.Table(), "u").
+		LeftJoin("room_live rl", "u.user_id=rl.user_id")
+	if countType == 2 { //统计标星开播主播
+		modelDb.LeftJoin("guild_anchor ga", "u.user_id=ga.user_id")
+		modelDb.Where("ga.star_level>0 and ga.status=1")
+	}
+	modelDb.WhereBetween("rl.last_heartbeat_time", startTime, endTime)
+	modelDb.Where("u.app_channel=? and rl.status in(1,2,4) and rl.last_heartbeat_time-rl.begin_time>1800", appChannel)
+	count, err := modelDb.Distinct().CountColumn("rl.user_id")
+	if err != nil {
+		return -1
+	}
+	return count
+}
+
+func (m *userInfoDao) GetLiveCountByHoursAndGuildId(ctx context.Context, countType int, guildId, startTime, endTime int64) int {
+	modelDb := m.DB().Ctx(ctx).
+		Model(m.Table(), "u").
+		LeftJoin("room_live rl", "u.user_id=rl.user_id").
+		LeftJoin("guild_anchor ga", "u.user_id=ga.user_id").
+		Where("ga.status=1")
+	if countType == 2 { //统计标星开播主播
+		modelDb.Where("ga.star_level>0")
+	}
+	if guildId > 0 {
+		modelDb.Where("ga.guild_id", guildId)
+	}
+	modelDb.WhereBetween("rl.last_heartbeat_time", startTime, endTime)
+	modelDb.Where("rl.status in(1,2,4) and rl.last_heartbeat_time-rl.begin_time>1800")
+
+	count, err := modelDb.Distinct().CountColumn("rl.user_id")
+	if err != nil {
+		return -1
+	}
+	return count
+}
+
+func (m *userInfoDao) GetActiveCountByHoursAndGuildId(ctx context.Context, countType int, guildId, startTime, endTime int64) int {
+	modelDb := m.DB().Ctx(ctx).
+		Model(m.Table(), " u").
+		LeftJoin("guild_anchor ga", "u.user_id=ga.user_id").
+		Where("ga.status=1")
+	if countType == 2 { //统计标星开播主播
+		modelDb.Where("ga.star_level>0 ")
+	}
+	if guildId > 0 {
+		modelDb.Where("ga.guild_id", guildId)
+	}
+	modelDb.WhereBetween("u.last_heartbeat_at", startTime, endTime)
+	count, err := modelDb.Distinct().CountColumn("u.user_id")
+	if err != nil {
+		return -1
+	}
+	return count
+}
+
+func (m *userInfoDao) GetTodayUserStatistics(ctx context.Context, appChannel string, countType int,
+	startTime, endTime, lastStartTime, lastEndTime int64) int {
+	model := m.DB().Ctx(ctx).Model(m.Table(), "u")
+	if countType == 1 || countType == 2 || countType == 3 { //用户在今天登录数
+		model.Where("u.role", consts.UserNormal)
+	} else if countType == 4 || countType == 5 || countType == 6 { //主播在今天登录数
+		model.LeftJoin("user_base_info ubi", "u.user_id=ubi.user_id")
+		model.WhereBetween("u.create_time", lastStartTime, lastEndTime)
+		model.WhereBetween("ubi.first_auth_time", lastStartTime, lastEndTime)
+		model.WhereBetween("u.last_heartbeat_at", startTime, endTime)
+		model.Where("u.app_channel", appChannel)
+		count, err := model.Distinct().CountColumn("u.user_id")
+		if err != nil {
+			return -1
+		}
+		return count
+	} else if countType == 7 || countType == 8 || countType == 9 { //付费留存数
+		model.LeftJoin("order_info o", "u.user_id=o.user_id")
+		model.Where("o.state=1")
+		model.WhereBetween("o.update_time", lastStartTime, lastEndTime)
+	}
+	model.WhereBetween("u.create_time", lastStartTime, lastEndTime)
+	model.WhereBetween("u.last_heartbeat_at", startTime, endTime)
+	model.Where("u.app_channel", appChannel)
+	count, err := model.Distinct().CountColumn("u.user_id")
+	if err != nil {
+		return -1
+	}
+	return count
+}
+
+func (m *userInfoDao) GetGameUserById(ctx context.Context, userId int64) (userRes *game.CocosUserRes) {
+	m.DB().Ctx(ctx).Model().
+		Fields("user_id as uid", "nickname as nick", "gender", "portrait").
+		Where("user_id", userId).
+		Scan(&userRes)
+	return userRes
+}
+
+func (m *userInfoDao) GetGameUserByIds(ctx context.Context, userIds []int64) (userRes []*game.UserRes) {
+	err := m.DB().Ctx(ctx).Model().
+		Fields("user_id as uid", "nickname as nick", "gender", "portrait").
+		WhereIn("user_id", userIds).
+		Scan(&userRes)
+	if err != nil {
+		return nil
+	}
+	return userRes
+}
+
+func (m *userInfoDao) GetRechargeUserByIds(ctx context.Context, userIds []int64) (userRes []*model.RechargeUserRes) {
+	err := m.DB().Ctx(ctx).Model().
+		Fields("user_id as user_id", "nickname as nickname", "portrait").
+		WhereIn("user_id", userIds).
+		Scan(&userRes)
+	if err != nil {
+		return nil
+	}
+	return userRes
+
+}
+
+func (m *userInfoDao) GetAllServerInfo(ctx context.Context) (res []entity.UserInfo, err error) {
+	err = m.DB().Ctx(ctx).Model().
+		Where("role", consts.UserServer).Scan(&res)
+	return
+}
+
+//func (m *userInfoDao) UpdateMessageState(ctx context.Context, id int64, state int) error {
+//	_, err := storage.HimiMysqlClient.Model("manager_message_record").Ctx(ctx).
+//		Where("id", id).Data("state", state).Update()
+//	return err
+//}
+
+// InNewUserList 判读用户是否在新人直播列表中
+func (m *userInfoDao) InNewUserList(ctx context.Context, id int64) bool {
+	count, err := m.DB().Ctx(ctx).Model(m.Table()+" ui").Ctx(ctx).
+		LeftJoin("guild_anchor ga", "ui.user_id = ga.user_id").
+		Where("ga.guild_id > 0 and ga.star_level = 0 and ui.user_id = ?", id).Count()
+	if err != nil {
+		g.Log().Errorf(ctx, "InNewUserList err=%v", err.Error())
+		return false
+	}
+	if count > 0 {
+		return true
+	}
+	return false
+}
+
+func (m *userInfoDao) GetUserByUsername(ctx context.Context, username string) (data *userInfoDao) {
+	_ = m.DB().Ctx(ctx).Model().
+		Where("username", username).Scan(&data)
+	return
+}
+
+func (m *userInfoDao) UpdatePwd(ctx context.Context, userId int64, password string) error {
+	_, err := m.DB().Ctx(ctx).Model().
+		Where("user_id", userId).
+		Data("password", password).Update()
+	return err
+}
+
+// UpdateUserWhatsApp 修改用户whatsApp
+func (m *userInfoDao) UpdateUserWhatsApp(ctx context.Context, userId int64, whatsApp string) error {
+	_, err := m.DB().Ctx(ctx).Model().
+		Where(m.Columns().UserId, userId).Data(g.Map{
+		m.Columns().WhatsApp:   whatsApp,
+		m.Columns().UpdateTime: time.Now().Unix(),
+	}).Update()
+	return err
+}
+
+func (m *userInfoDao) GetWeekRankListByType(ctx context.Context, rankType, firstAuthTime int64) (data []*model.AnchorWeekRankRes) {
+	sqlStr := `
+		select ii.user_id,ui.portrait, ui.nickname,ui.live_state,ii.balances_income
+	    from income_info  ii
+		left join guild_anchor ga on ii.user_id = ga.user_id
+		left join user_info ui on ii.user_id = ui.user_id
+		left join user_base_info ubi on ii.user_id = ubi.user_id
+		where ga.star_level>0  and ga.status=1
+	`
+	limit := 10
+	if rankType == 1 { //1星秀榜 2推荐榜 3优质榜
+		sqlStr = sqlStr + " and ((ubi.first_auth_time> " + gconv.String(firstAuthTime) + " and ii.balances_income < 25000000)"
+		minBalancesIncomeVal, _ := g.Redis().Get(ctx, "minBalancesIncome")
+		if minBalancesIncomeVal.Int64() > 0 {
+			sqlStr = sqlStr + " or (ubi.first_auth_time> " + gconv.String(firstAuthTime) + " and ii.balances_income >= 25000000 and ii.balances_income<" + minBalancesIncomeVal.String() + ")"
+		}
+		qualityMinBalancesIncomeVal, _ := g.Redis().Get(ctx, "qualityMinBalancesIncome")
+		if qualityMinBalancesIncomeVal.Int64() > 0 {
+			sqlStr = sqlStr + " or (ubi.first_auth_time> " + gconv.String(firstAuthTime) + " and ii.balances_income >= 70000000 and ii.balances_income<" + qualityMinBalancesIncomeVal.String() + ")"
+		}
+		sqlStr = sqlStr + ")"
+	} else if rankType == 2 { //2推荐榜 14天以内的新主播大于25k||14天外的主播
+		sqlStr = sqlStr + " and ((ubi.first_auth_time< " + gconv.String(firstAuthTime) + " and ii.balances_income < 70000000)" +
+			" or (ubi.first_auth_time > " + gconv.String(firstAuthTime) + " and ii.balances_income >= 25000000 and ii.balances_income < 70000000))"
+		limit = 40
+	} else if rankType == 3 { //3推荐榜
+		sqlStr = sqlStr + " and ii.balances_income >= 70000000"
+		limit = 20
+	}
+	sqlStr = sqlStr + " order by ii.balances_income desc limit " + gconv.String(limit)
+	res, err := m.DB().Query(ctx, sqlStr)
+	if err != nil {
+		g.Log().Error(ctx, err)
+		return nil
+	}
+	res.Structs(&data)
+	SetMinIncome(ctx, int(rankType), data)
+	return data
+}
+
+func SetMinIncome(ctx context.Context, rankType int, data []*model.AnchorWeekRankRes) {
+	if rankType > 1 && len(data) > 0 {
+		minBalancesIncome, qualityMinBalancesIncome := data[0].BalancesIncome, data[0].BalancesIncome
+		for _, item := range data {
+			if rankType == 2 && item.BalancesIncome < minBalancesIncome && item.BalancesIncome >= 25000000 {
+				minBalancesIncome = item.BalancesIncome
+			}
+			if rankType == 3 && item.BalancesIncome < qualityMinBalancesIncome && item.BalancesIncome >= 70000000 {
+				qualityMinBalancesIncome = item.BalancesIncome
+			}
+		}
+		if rankType == 2 {
+			g.Redis().Set(ctx, "minBalancesIncome", minBalancesIncome)
+			g.Redis().Expire(ctx, "minBalancesIncome", consts.OneMinute*10)
+		}
+		if rankType == 3 {
+			g.Redis().Set(ctx, "qualityMinBalancesIncome", qualityMinBalancesIncome)
+			g.Redis().Expire(ctx, "qualityMinBalancesIncome", consts.OneMinute*10)
+		}
+	}
+}
