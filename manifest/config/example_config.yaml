@@ -3,27 +3,18 @@ server:
   openapiPath: "/api.json"
   swaggerPath: "/swagger"
 
-# 数据库连接配置 Database.
+# 数据库连接配置
 database:
   logger:
-    path:   "./logs"
-    file: "{Y-m-d}.log" # 日志文件格式。默认为"{Y-m-d}.log"
+    path: "logs/sql"
+    level: "all"
+    stdout: true
     ctxKeys: ["Trace-Id","UserId","RequestId"]
-    level:   "all"
-    stdout:  true
+
   default:
-    - role: "master"
-      link: "mysql:root:pZO23N*V@tcp(47.96.253.205:3305)/himi_db?loc=Local&parseTime=true"
-      debug: true
-      maxIdle: 10 #连接池最大闲置的连接数
-      maxOpen: 800 #连接池最大打开的连接数"
-      maxLifetime: "30s" #连接对象可重复使用的时间长度
-    - role: "slave"
-      link: "mysql:root:pZO23N*V@tcp(47.96.253.205:3305)/himi_db?loc=Local&parseTime=true"
-      debug:  true
-      maxIdle: 10  #连接池最大闲置的连接数
-      maxOpen: 800 #连接池最大打开的连接数"
-      maxLifetime: "30s" #连接对象可重复使用的时间长度
+    link: "mysql:root:pZO23N*V@tcp(47.96.253.205:3305)/ark_db?loc=Local&parseTime=true"
+    debug: true
+
 
 # Redis 配置示例
 redis:

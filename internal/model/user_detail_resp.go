@@ -3,7 +3,7 @@ package model
 // DetailResp 用户详情返回包装对象
 type DetailResp struct {
 	User           *InfoVo        `json:"user"`
-	Balance        *BalanceVo     `json:"balance"`
+	Balance        *BalanceVo     `json:"balances"`
 	UserDressUps   *DressUpVo     `json:"userDressUps"`
 	GuildAnchor    *GuildAnchorVo `json:"guildAnchor"`
 	ServerWhatsApp string         `json:"serverWhatsApp"`

@@ -11,7 +11,7 @@ import (
 )
 
 type (
-	IInviterActivity interface {
+	IInviter interface {
 		// ShareChannels 分享
 		ShareChannels(ctx context.Context, in model.ShareChannelsReq) (out model.ShareChannelsRes, err error)
 		// NewUserLoginReward 新用户绑定
@@ -20,16 +20,16 @@ type (
 )
 
 var (
-	localInviterActivity IInviterActivity
+	localInviter IInviter
 )
 
-func InviterActivity() IInviterActivity {
-	if localInviterActivity == nil {
-		panic("implement not found for interface IInviterActivity, forgot register?")
+func Inviter() IInviter {
+	if localInviter == nil {
+		panic("implement not found for interface IInviter, forgot register?")
 	}
-	return localInviterActivity
+	return localInviter
 }
 
-func RegisterInviterActivity(i IInviterActivity) {
-	localInviterActivity = i
+func RegisterInviter(i IInviter) {
+	localInviter = i
 }

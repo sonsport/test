@@ -5,7 +5,18 @@
 package dao
 
 import (
+	"context"
+	"database/sql"
+	"time"
+
+	"github.com/gogf/gf/v2/database/gdb"
+	"github.com/gogf/gf/v2/frame/g"
+	"github.com/gogf/gf/v2/util/gconv"
+
+	"fuya-ark/internal/consts"
 	"fuya-ark/internal/dao/internal"
+	"fuya-ark/internal/model"
+	"fuya-ark/internal/model/entity"
 )
 
 // internalBalanceRecordDao is internal type for wrapping internal DAO implements.
@@ -25,3 +36,244 @@ var (
 )
 
 // Fill with you ideas below.
+
+func (m *balanceRecordDao) Insert(ctx context.Context, record entity.BalanceRecord, tx gdb.TX) (lastInsertId int64, err error) {
+	record.CreateTime = time.Now().Unix()
+	record.UpdateTime = time.Now().Unix()
+	db := m.DB().Model().Ctx(ctx)
+	if tx != nil {
+		db.TX(tx)
+	}
+	lastInsertId, err = db.FieldsEx("id").Data(record).InsertAndGetId()
+	if err != nil {
+		g.Log().Warning(ctx, "BalanceRecord Insert err:%s ", err)
+		return 0, err
+	}
+	return lastInsertId, nil
+}
+
+// GetRechargeRewardsCount 根据邀请者id获取充值人数
+func (m *balanceRecordDao) GetRechargeRewardsCount(ctx context.Context, inviterUserId int64) (int, error) {
+	model := m.DB().Model().Ctx(ctx).Where("source_user_id=?", inviterUserId).
+		Where("depletion_type", consts.RechargeRewards).
+		Where("type", consts.BalanceTypeIncome)
+	count, err := model.CountColumn("target_user_id")
+	if err != nil && err != sql.ErrNoRows {
+		g.Log().Errorf(ctx, "GetRechargeRewardsCount err:%s", err)
+		return 0, err
+	}
+	return count, nil
+}
+
+// GetInvitedUser 根据邀请者id返回被邀请人信息
+func (m *balanceRecordDao) GetInvitedUser(ctx context.Context, inviterUserId int64) ([]*entity.BalanceRecord, error) {
+	list := make([]*entity.BalanceRecord, 0)
+	err := m.DB().Model().Ctx(ctx).
+		Where("source_user_id=?", inviterUserId).
+		Where("depletion_type", consts.RechargeRewards).
+		Scan(&list)
+
+	if err != nil && err != sql.ErrNoRows {
+		g.Log().Errorf(ctx, "GetInvitedUser err:%s", err)
+		return nil, err
+	}
+
+	return list, nil
+}
+
+// GetInfoBySourceUserIdAndTargetUserId 获取邀请列表，Type =2, DepletionType in [8, 10]
+func (m *balanceRecordDao) GetInfoBySourceUserIdAndTargetUserId(ctx context.Context, sourceUserId int64, targetUserId int64) ([]*entity.BalanceRecord, error) {
+	var list []*entity.BalanceRecord
+	err := m.DB().Model().Ctx(ctx).
+		Cache(gdb.CacheOption{
+			Duration: time.Minute,
+			Name:     consts.MysqlBalanceRecordInvitedReward + gconv.String(sourceUserId) + gconv.String(targetUserId),
+		}).
+		Where("source_user_id", sourceUserId).
+		Where("target_user_id", targetUserId).
+		Where("type", consts.BalanceTypeIncome).
+		WhereIn("depletion_type", g.Slice{consts.RechargeRewards, consts.InviteRewards}).
+		Scan(&list)
+
+	if err != nil {
+		g.Log().Errorf(ctx, "GetInfoBySourceUserIdAndTargetUserId err:%s", err)
+		return nil, err
+	}
+	return list, nil
+}
+
+// SumByDepletionTypeAndTime 根据用户id和流水类型统计
+func (m *balanceRecordDao) SumByDepletionTypeAndTime(ctx context.Context,
+	userId int64, depletionType int, createTime, endTime int64) (float64, error) {
+	sumDiamonds, err := m.DB().Model().Ctx(ctx).
+		Where("source_user_id=?", userId).
+		Where("depletion_type=?", depletionType).
+		WhereBetween("create_time", createTime, endTime).
+		Sum("diamonds")
+	return sumDiamonds, err
+}
+
+// SumByDepletionTypesAndTime 根据用户id和流水类型统计
+func (m *balanceRecordDao) SumByDepletionTypesAndTime(ctx context.Context,
+	userId int64, depletionTypes []int, gtTime int64) (float64, error) {
+	sumDiamonds, err := m.DB().Model().Ctx(ctx).
+		Where("source_user_id", userId).
+		WhereIn("depletion_type", depletionTypes).
+		WhereGT("create_time", gtTime).
+		Sum("diamonds")
+	return sumDiamonds, err
+}
+
+func (m *balanceRecordDao) SumDiamondsByTimeGroupByType(
+	ctx context.Context, createTime, endTime int64) (map[int64]int64, error) {
+	sqlStr := `
+		SELECT depletion_type,sum(diamonds) FROM balance_record WHERE create_time between ? and ? group by depletion_type
+	`
+	re, err := m.DB().Ctx(ctx).Query(ctx, sqlStr, createTime, endTime)
+	if err != nil {
+		g.Log().Errorf(ctx, "SumDiamondsByTimeGroupByType err:%s", err)
+		return nil, err
+	}
+	data := make(map[int64]int64, 0)
+	err = re.Structs(&data)
+	if err != nil {
+		return nil, err
+	}
+	return data, err
+}
+
+func (m *balanceRecordDao) SumDiamondsByTimeAndType(ctx context.Context, appChannel string, createTime, endTime int64, recordType int) (int64, error) {
+	sqlStr := `
+		SELECT sum(diamonds) as diamonds  
+			FROM balance_record br
+		  left join user_info ui on br.source_user_id = ui.user_id
+		  WHERE br.create_time between ? and ?
+		    and  br.type=?
+			and ui.app_channel=?
+	`
+	count, err := m.DB().Ctx(ctx).GetOne(ctx, sqlStr, createTime, endTime, recordType, appChannel)
+	if err != nil {
+		g.Log().Errorf(ctx, "SumDiamondsByTimeAndType err:%s", err)
+		return 0, err
+	}
+	dataMap := count.GMap()
+	if dataMap.Contains("diamonds") {
+		return dataMap.GetVar("diamonds").Int64(), nil
+	}
+	return -1, nil
+}
+
+func (m *balanceRecordDao) GetLiveAwardRecord(ctx context.Context, userId int64, page, size int) (resp []*model.LiveAwardRecord, err error) {
+	limit := size
+	offset := page * size
+	sqlStr := `
+		SELECT source_user_id as user_id,link_id,SUM(diamonds) as diamonds
+		from balance_record 
+		WHERE source_user_id= ? and depletion_type=12 
+		GROUP BY source_user_id,link_id 
+		ORDER BY link_id desc
+		LIMIT ?,?
+	`
+	data, err := m.DB().Ctx(ctx).Query(ctx, sqlStr, userId, offset, limit)
+	if err != nil {
+		g.Log().Errorf(ctx, "GetLiveAwardRecord err:%s", err)
+		return nil, err
+	}
+	err = data.Structs(&resp)
+	if err != nil {
+		return nil, err
+	}
+	return resp, err
+}
+
+func (m *balanceRecordDao) GetListByTimeAndGtId(ctx context.Context, minId, startOfDay int64, endOfDay int64, size int) (data []*entity.BalanceRecord) {
+	err := m.DB().Model().Ctx(ctx).
+		WhereGT("id", minId).
+		WhereBetween("create_time", startOfDay, endOfDay).
+		OrderAsc("id").
+		Limit(size).
+		Scan(&data)
+	if err != nil {
+		g.Log().Errorf(ctx, "GetListByTimeAndGtId err:%s", err)
+		return nil
+	}
+	return
+}
+
+func (m *balanceRecordDao) MigrateBatch(ctx context.Context, month string, records []*entity.BalanceRecord) error {
+	_, err := m.DB().Ctx(ctx).Model(m.Table() + "_" + month).Data(records).Insert()
+	if err != nil {
+		g.Log().Errorf(ctx, "GetListByTimeAndGtId err:%s", err)
+		return err
+	}
+	return nil
+}
+
+func (m *balanceRecordDao) DeleteRecordByIds(ctx context.Context, ids []int64) {
+	_, err := m.DB().Model().Ctx(ctx).WhereIn("id", ids).Delete()
+	if err != nil {
+		g.Log().Errorf(ctx, "DeleteRecordByIds err:%s", err)
+	}
+}
+
+// StatisticBalance 统计游戏订单流水
+func (m *balanceRecordDao) StatisticBalance(ctx context.Context, depletionType int, startTime, endTime int64) (statistics *entity.BalanceStatistics, err error) {
+	//统计增加、扣除流水、参与人数、房间数
+	sqlStr := `
+			select
+				sum(diamonds) as diamonds,
+				type as big_type
+			from balance_record 
+			where depletion_type = ? and create_time between ? and ?
+	`
+	data, err := m.DB().Ctx(ctx).GetOne(ctx, sqlStr, depletionType, startTime, endTime)
+	if err != nil {
+		return nil, err
+	}
+	err = data.Struct(&statistics)
+	if err != nil {
+		return nil, err
+	}
+	return
+}
+
+func (m *balanceRecordDao) StatisticBalanceByUser(ctx context.Context, startId, endId uint64) ([]*entity.BalanceStatisticsUser, error) {
+	var userStats []*entity.BalanceStatisticsUser
+	err := m.DB().Ctx(ctx).Model().
+		Fields(
+			gdb.Raw("MAX(id) AS id"),
+			gdb.Raw("source_user_id AS user_id"),
+			gdb.Raw("FROM_UNIXTIME(create_time, '%Y-%m-%d') AS date"),
+			"depletion_type",
+			"type",
+			gdb.Raw("SUM(diamonds) AS diamonds"),
+		).
+		Where("id > ? AND id <= ?", startId, endId).
+		Group("user_id", "date", "depletion_type", "type").
+		// 方便取最后一个最大的id
+		Order("id ASC").
+		Scan(&userStats)
+	return userStats, err
+}
+
+func (m *balanceRecordDao) GetRandInvitedUsers(ctx context.Context, limit int) (res []*model.ShareNewUserInfoV1) {
+	sqlStr := `
+			select
+				distinct source_user_id as user_id,
+				diamonds as recharge_num
+			from balance_record 
+			where depletion_type in (8,10) 
+			order by create_time desc
+			limit ?
+	`
+	data, err := m.DB().Ctx(ctx).GetAll(ctx, sqlStr, limit)
+	if err != nil {
+		return nil
+	}
+	err = data.Structs(&res)
+	if err != nil {
+		return nil
+	}
+	return res
+
+}

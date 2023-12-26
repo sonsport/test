@@ -33,3 +33,12 @@ const (
 	ErrSecretAnswerMsg      = "密保问题不正确"
 	ResourcePermissionFail  = "没有权限操作"
 )
+
+const (
+	TimeLayoutDate     = "2006-01-02"
+	TimeLayoutTime     = "2006-01-02 15:04:05"
+	TimeLayoutTimeHour = "2006-01-02 15"
+	TimeLayoutMonth    = "200601"
+	TimeLayoutDay      = "20060102"
+	TimeSecondDate     = "20060102150405"
+)

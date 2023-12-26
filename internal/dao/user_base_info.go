@@ -5,7 +5,16 @@
 package dao
 
 import (
+	"context"
+	"database/sql"
+	"errors"
+	"time"
+
+	"github.com/gogf/gf/v2/database/gdb"
+	"github.com/gogf/gf/v2/frame/g"
+
 	"fuya-ark/internal/dao/internal"
+	"fuya-ark/internal/model/entity"
 )
 
 // internalUserBaseInfoDao is internal type for wrapping internal DAO implements.
@@ -25,3 +34,146 @@ var (
 )
 
 // Fill with you ideas below.
+
+func (m *userBaseInfoDao) SaveUserBaseInfo(ctx context.Context, info entity.UserBaseInfo, tx gdb.TX) error {
+	model := m.DB().Ctx(ctx).Model()
+	if tx != nil {
+		model.TX(tx)
+	}
+	info.CreatedTime = time.Now().Unix()
+	info.UpdatedTime = time.Now().Unix()
+	_, err := model.Data(info).Insert()
+	return err
+}
+
+func (m *userBaseInfoDao) UpdateUserBaseServer(ctx context.Context, userId, serverId int64) error {
+	_, err := m.DB().Ctx(ctx).Model().
+		Where("user_id", userId).
+		Data(m.Columns().ServerId, serverId).Update()
+	return err
+}
+
+// GetUserBaseInfo 获取用户扩展信息
+func (m *userBaseInfoDao) GetUserBaseInfo(ctx context.Context, userId int64) (rows *entity.UserBaseInfo, err error) {
+	err = m.DB().Ctx(ctx).Model().Ctx(ctx).Where("user_id", userId).Scan(&rows)
+	return
+}
+
+// UpdateFirstLiveTime 更新首播时间
+func (m *userBaseInfoDao) UpdateFirstLiveTime(ctx context.Context, userId, firstLiveTime int64, tx gdb.TX) error {
+	updateData := g.Map{
+		"first_live_time": firstLiveTime,
+		"update_time":     time.Now().Unix(),
+	}
+	model := m.DB().Ctx(ctx).Model()
+	if tx != nil {
+		model.TX(tx)
+	}
+	_, err := model.Ctx(ctx).
+		Where("user_id", userId).
+		Where("first_live_time <= 0").
+		Data(updateData).
+		Update()
+	return err
+}
+
+// UpdateFirstAuthTime 更新首次时间
+func (m *userBaseInfoDao) UpdateFirstAuthTime(ctx context.Context, userId, firstAuthTime int64, tx gdb.TX) error {
+	updateData := g.Map{
+		"first_auth_time": firstAuthTime,
+		"update_time":     time.Now().Unix(),
+	}
+	model := m.DB().Ctx(ctx).Model()
+	if tx != nil {
+		model.TX(tx)
+	}
+	_, err := model.Ctx(ctx).
+		Where("user_id", userId).
+		Where("first_auth_time <= 0").
+		Data(updateData).
+		Update()
+	return err
+}
+
+// UpdateLastAuthTime 更新首次时间
+func (m *userBaseInfoDao) UpdateLastAuthTime(ctx context.Context, userId, lastAuthTime int64, tx gdb.TX) error {
+	updateData := g.Map{
+		"last_auth_time": lastAuthTime,
+		"update_time":    time.Now().Unix(),
+	}
+	model := m.DB().Ctx(ctx).Model()
+	if tx != nil {
+		model.TX(tx)
+	}
+	_, err := model.Ctx(ctx).
+		Where("user_id", userId).
+		Data(updateData).
+		Update()
+	return err
+}
+
+func (m *userBaseInfoDao) GetCountByFirstLiveTime(ctx context.Context, appChannel string, userId, createTime, endTime int64, tx gdb.TX) (int, error) {
+	model := m.DB().Ctx(ctx).
+		Model(m.Table(), "ub").
+		Ctx(ctx).
+		RightJoin("user_info u", "u.user_id=ub.user_id").
+		LeftJoin("guild_anchor ga", "ub.user_id=ga.user_id")
+	if tx != nil {
+		model.TX(tx)
+	}
+	if userId > 0 {
+		model.Where("user_id", userId)
+	}
+
+	count, err := model.
+		WhereGTE("ub.first_auth_time", createTime).
+		WhereLTE("ub.first_auth_time", endTime).
+		WhereBetween("u.create_time", createTime, endTime).
+		Where("u.app_channel=? and ga.status=1", appChannel).
+		Count("ub.user_id")
+	return count, err
+}
+
+func (m *userBaseInfoDao) GetUserBaseInfoByUserId(ctx context.Context, userId int64) (userBase *entity.UserBaseInfo, err error) {
+	err = m.DB().Ctx(ctx).Model().Where("user_id", userId).Scan(&userBase)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	return userBase, nil
+}
+
+func (m *userBaseInfoDao) UpdateLiveCall(ctx context.Context, userId int64, callSwitch int64, callType int64, tx gdb.TX) interface{} {
+	updateData := g.Map{
+		"live_call_switch": callSwitch,
+		"live_call_type":   callType,
+		"update_time":      time.Now().Unix(),
+	}
+	model := m.DB().Ctx(ctx).Model()
+	if tx != nil {
+		model.TX(tx)
+	}
+	_, err := model.Ctx(ctx).
+		Where("user_id", userId).
+		Data(updateData).
+		Update()
+	return err
+}
+
+func (m *userBaseInfoDao) UpdateLiveMultipleUser(ctx context.Context, userId int64, reviewUpUser, multipleUserType int64, tx gdb.TX) error {
+	if reviewUpUser == -1 && multipleUserType == -1 {
+		return nil
+	}
+	updateData := g.Map{"update_time": time.Now().Unix()}
+	if reviewUpUser != -1 {
+		updateData["review_up_user"] = reviewUpUser
+	}
+	if multipleUserType > 0 {
+		updateData["multiple_user_type"] = multipleUserType
+	}
+	model := m.DB().Ctx(ctx).Model()
+	if tx != nil {
+		model.TX(tx)
+	}
+	_, err := model.Ctx(ctx).Where("user_id", userId).Data(updateData).Update()
+	return err
+}

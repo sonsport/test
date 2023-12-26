@@ -57,7 +57,7 @@ func (m *balanceInfoDao) GetBalanceInfoByUserid(ctx context.Context, userId int6
 }
 
 // UpdateBalance 扣钻
-func (m *balanceInfoDao) UpdateBalance(ctx context.Context, userId, diamonds int64, tx gdb.TX) (affected int64, err error) {
+func (m *balanceInfoDao) UpdateBalance(ctx context.Context, userId, diamonds uint64, tx gdb.TX) (affected int64, err error) {
 	modelDb := m.DB().Model().Ctx(ctx)
 	if tx != nil {
 		modelDb.TX(tx)
@@ -79,7 +79,7 @@ func (m *balanceInfoDao) UpdateBalance(ctx context.Context, userId, diamonds int
 
 // GetByUserId 根据用户获取余额
 func (m *balanceInfoDao) GetByUserId(ctx context.Context, userId int64) (balance *entity.BalanceInfo) {
-	_ = m.DB().Ctx(ctx).Model().Ctx(ctx).Where("user_id=?", userId).Scan(balance)
+	_ = m.DB().Ctx(ctx).Model().Ctx(ctx).Where("user_id", userId).Scan(balance)
 	return
 }
 
@@ -89,8 +89,8 @@ func (m *balanceInfoDao) GetByUserIdWithTx(ctx context.Context, userId int64, tx
 	return
 }
 
-// SumRemainDiamonds 根据用户获取余额
-func (m *balanceInfoDao) SumRemainDiamonds(ctx context.Context, userId int64) int64 {
-	total, _ := m.DB().Ctx(ctx).Model().Ctx(ctx).Where("user_id=?", userId).Sum("remain_diamonds")
+// SumRemainDiamonds 获取余额库存
+func (m *balanceInfoDao) SumRemainDiamonds(ctx context.Context) int64 {
+	total, _ := m.DB().Ctx(ctx).Model().Ctx(ctx).Sum("remain_diamonds")
 	return int64(total)
 }

@@ -5,7 +5,13 @@
 package dao
 
 import (
+	"context"
+	"database/sql"
+
+	"github.com/gogf/gf/v2/frame/g"
+
 	"fuya-ark/internal/dao/internal"
+	"fuya-ark/internal/model/entity"
 )
 
 // internalLoginRecordDao is internal type for wrapping internal DAO implements.
@@ -25,3 +31,48 @@ var (
 )
 
 // Fill with you ideas below.
+
+// SaveLoginRecord 保存登录日志x
+func (m *loginRecordDao) SaveLoginRecord(ctx context.Context) (err error) {
+	_, err = m.DB().Ctx(ctx).Model().Data(m).Insert()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// GetByUserIdOrDeviceId 获取单个用户或设备的登录日志
+func (m *loginRecordDao) GetByUserIdOrDeviceId(
+	ctx context.Context, userId int64, deviceId string) (loginRecords *[]entity.LoginRecord, err error) {
+	dataMap := g.Map{}
+	var where = "where 1=1 "
+	if userId != 0 {
+		dataMap["user_id"] = userId
+	}
+	if len(deviceId) > 0 {
+		dataMap["device_id"] = deviceId
+	}
+	err = m.DB().Ctx(ctx).Model().Data(dataMap).Where(where).
+		OrderDesc("create_time").Limit(10).Scan(loginRecords)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+	return
+}
+
+// GetIllegalUserCount 获取与这个用户设备关联且取消邀新资格用户数
+func (m *loginRecordDao) GetIllegalUserCount(ctx context.Context, userId int64) (int, error) {
+	sqlStr := `SELECT count(distinct lr2.user_id) as total
+FROM login_record lr1
+         LEFT JOIN login_record lr2 on lr2.device_id = lr1.device_id
+         LEFT JOIN inviter_info li on li.user_id = lr2.user_id
+WHERE lr1.user_id = ? and li.stat != 1;`
+	res, err := m.DB().Ctx(ctx).Query(ctx, sqlStr, userId)
+	if err != nil {
+		return 0, err
+	}
+	if res.Len() > 0 {
+		return res[0]["total"].Int(), nil
+	}
+	return 0, nil
+}

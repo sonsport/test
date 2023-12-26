@@ -68,7 +68,7 @@ func SearchIp(ip string) (region string, isOfficial bool) {
 		g.Log().Debugf(ctx, "ip-api---ip:%s region: %s, took: %s}", ip, areaJson, time.Since(tStart))
 	} else {
 		areaJson = areaJsonVar.String()
-		g.Log().Debugf(ctx, "ip-api-cache---ip:%s region: %s, took: %s}", ip, areaJson, time.Since(tStart))
+		g.Log().Debugf(ctx, "ip-api-oss---ip:%s region: %s, took: %s}", ip, areaJson, time.Since(tStart))
 	}
 	areaMap, ipAPiIsOfficial := parseIPApiResp(areaJson)
 	if !isOfficial {

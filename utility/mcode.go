@@ -40,7 +40,7 @@ var (
 	GuildNameAlready      = gcode.New(1024, "公会名称已经存在了，换一个名称试试吧", "公会名称已经存在了，换一个名称试试吧")
 	CreateRoomErr         = gcode.New(1025, "Create room fail", "Create room fail")
 
-	InsufficientBalance  = gcode.New(1026, "Insufficient balance", "Insufficient balance")
+	InsufficientBalance  = gcode.New(1026, "Insufficient balances", "Insufficient balances")
 	UnusualGiftRecipient = gcode.New(1027, "unusual gift recipient", "unusual gift recipient")
 	NotFound             = gcode.New(1028, "Not Found", "Resource does not exist")
 

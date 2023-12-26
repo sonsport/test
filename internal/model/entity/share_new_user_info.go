@@ -8,7 +8,7 @@ package entity
 type ShareNewUserInfo struct {
 	Id               uint64 `json:"id"               description:""`
 	UserId           int64  `json:"userId"           description:""`
-	ShareId          int    `json:"shareId"          description:"分享ID"`
+	ShareId          int64  `json:"shareId"          description:"分享ID"`
 	OwnerUserId      int64  `json:"ownerUserId"      description:"分享者uid"`
 	WatchLiveTime    int    `json:"watchLiveTime"    description:"观看直播时长"`
 	RegisterTime     int64  `json:"registerTime"     description:"注册时间"`

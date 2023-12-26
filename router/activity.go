@@ -10,10 +10,10 @@ import (
 func InitActivityRouter(s *ghttp.RouterGroup) {
 	s.Group("/inviter", func(group *ghttp.RouterGroup) {
 		//获取分享渠道及分享链接
-		group.GET("/share/channels", BindRequest(model.ShareChannelsInput{}).Do(controller.Activity.ShareChannels))
+		group.GET("/share/channels", BindRequest(model.ShareChannelsReq{}).Do(controller.Activity.ShareChannels))
 		//分享登录绑定
-		group.POST("/user/login/reward", BindRequest(model.NewUserLoginRewardInput{}).Do(controller.Activity.NewUserLoginReward))
-		////获取拉新总览
+		group.POST("/user/login/reward", BindRequest(model.NewUserLoginRewardReq{}).Do(controller.Activity.NewUserLoginReward))
+		//获取拉新总览
 		//group.GET("/get-inviter-info", BindRequest(srv.PullUserListReq{}).Do(srv.GetInviterInfo))
 		////拉新详情
 		//group.GET("/pull-user/records", BindRequest(base.PageSizeReq{}).Do(srv.PullUserRecords))

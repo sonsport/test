@@ -5,7 +5,19 @@
 package dao
 
 import (
+	"context"
+	"database/sql"
+	"time"
+
+	"github.com/gogf/gf/v2/database/gdb"
+	"github.com/gogf/gf/v2/frame/g"
+	"github.com/gogf/gf/v2/util/gconv"
+
+	"fuya-ark/internal/consts"
 	"fuya-ark/internal/dao/internal"
+	"fuya-ark/internal/model"
+	"fuya-ark/internal/model/do"
+	"fuya-ark/internal/model/entity"
 )
 
 // internalGuildInfoDao is internal type for wrapping internal DAO implements.
@@ -25,3 +37,234 @@ var (
 )
 
 // Fill with you ideas below.
+
+// UpdateGuildAnnouncement 修改公告信息
+func (m *guildInfoDao) UpdateGuildAnnouncement(ctx context.Context, id int64, announcement, portrait, guildName string, cutRate, isPayToGuild, updateType int8) (err error) {
+	updateMap := g.Map{
+		"update_time": time.Now().Unix(),
+	}
+	if updateType == 0 {
+		updateMap["notice"] = announcement
+	} else {
+		updateMap["cut_rate"] = cutRate
+		updateMap["is_pay_to_guild"] = isPayToGuild
+	}
+	if len(guildName) > 0 {
+		updateMap["guild_name"] = guildName
+	}
+	if len(portrait) > 0 {
+		updateMap["portrait"] = portrait
+	}
+	if _, err = m.DB().Model().Ctx(ctx).
+		Data(updateMap).
+		Where("id", id).Update(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *guildInfoDao) GetGuildInfoByGCode(ctx context.Context, gCode int) (data *entity.GuildAnchor, err error) {
+	err = m.DB().Model().Ctx(ctx).Where("status=? and gcode=?", 1, gCode).Scan(&m)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+	return data, err
+}
+
+func (m *guildInfoDao) UpdateGuildMemberCount(ctx context.Context, guildId int64) (err error) {
+	if _, err = m.DB().Model().Ctx(ctx).
+		Where(m.Columns().Id, guildId).Increment(m.Columns().MemberCount, 1); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *guildInfoDao) CreateGuildInfo(ctx context.Context, info entity.GuildInfo) (err error) {
+	info.CreateTime = time.Now().Unix()
+	info.UpdateTime = time.Now().Unix()
+	info.Status = 0
+	_, err = m.DB().Model().Ctx(ctx).Data(info).Save()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *guildInfoDao) GetGuildServiceIdByUserId(ctx context.Context, userId int64, status int) (
+	data *entity.GuildInfo, err error) {
+	sqlStr := `
+			select gi.* from guild_info gi
+            left join guild_anchor ga on gi.id=ga.guild_id
+			where gi.status=1
+			and ga.user_id=?
+			and ga.status=?
+	`
+	err = m.DB().Ctx(ctx).GetScan(ctx, &data, sqlStr, userId, status)
+	return data, err
+}
+
+func (m *guildInfoDao) GetGuildInfo(ctx context.Context, id int64) (guild *entity.GuildInfo, err error) {
+	err = m.DB().Model().Ctx(ctx).Where("id=?", id).Scan(&guild)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+	return
+}
+
+func (m *guildInfoDao) GetGuildOkInfo(ctx context.Context, id int64) (guild *entity.GuildInfo, err error) {
+	err = m.DB().Model().Ctx(ctx).
+		Where("id=?", id).Where("status", consts.GuildStatusOk).Scan(&guild)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+	return
+}
+
+func (m *guildInfoDao) GetGuildInfoById(ctx context.Context, id int64) (guild *entity.GuildInfo, err error) {
+	err = m.DB().Model().Ctx(ctx).Cache(
+		gdb.CacheOption{
+			Duration: time.Minute * 1,
+			Name:     consts.MysqlGuildInfoById + gconv.String(id),
+			Force:    false,
+		}).
+		Where("id", id).Scan(&guild)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+	return guild, nil
+}
+
+func (m *guildInfoDao) GetGuildInfoByIds(ctx context.Context, ids []int64) ([]entity.GuildInfo, error) {
+	var res []entity.GuildInfo
+	err := m.DB().Model().Ctx(ctx).Where("id in (?) and status=1", ids).Scan(&res)
+	return res, err
+}
+
+func (m *guildInfoDao) GetGuildInfoByUserId(ctx context.Context, userId int64) (guild *entity.GuildInfo, err error) {
+	err = m.DB().Model().Ctx(ctx).Where("user_id=?", userId).
+		Where("status=?", consts.GuildStatusOk).Scan(&guild)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+	return guild, nil
+}
+
+func (m *guildInfoDao) GetGuildInfoByStatus(ctx context.Context) (guild []*entity.GuildInfo, err error) {
+	err = m.DB().Model().Ctx(ctx).Where("status=?", consts.GuildStatusOk).Scan(&guild)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
+	return guild, nil
+}
+
+func (m *guildInfoDao) AddMemberCount(ctx context.Context, id int) (err error) {
+	if _, err = m.DB().Model().Ctx(ctx).Where("id", id).
+		Increment("views", 1); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *guildInfoDao) DecrMemberCount(ctx context.Context, id int) (err error) {
+	if _, err = m.DB().Model().Ctx(ctx).
+		Where("id", id).
+		Increment("views", -1); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *guildInfoDao) UpdateGuildInfo(ctx context.Context, info do.GuildInfo) (err error) {
+	info.UpdateTime = time.Now().Unix()
+	if _, err = m.DB().Model().Ctx(ctx).Data(info).Update(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *guildInfoDao) CountGuildByServerId(ctx context.Context,
+	serverId, startTime, endTime int64) (res *model.GuildStatistics, err error) {
+	sqlStr := `
+			select
+				count(server_id) as guild_num,
+				count(if(create_time >=` + gconv.String(startTime) + ` and create_time<` + gconv.String(endTime) + `,id,null)) as new_guild_num
+			from guild_info
+			where server_id = ? and status=1
+	`
+	re, err := m.DB().Ctx(ctx).GetOne(ctx, sqlStr, serverId)
+	re.Struct(&res)
+	return
+}
+
+// func (m *GuildInfoModel) CountWeekNewGuild(ctx context.Context, serverId, beginTime, endTime int64) (guildNum int, err error) {
+// 	guildNum, err = storage.HimiMysqlClient.Model(m.TableName()).Ctx(ctx).
+// 		Where("server_id=? and create_time >=? and create_time<?", serverId, beginTime, endTime).Count()
+// 	return
+// }
+
+func (m *guildInfoDao) GetGuildInfosByServreId(ctx context.Context, serverId int64) (guilds []entity.GuildInfo, err error) {
+	err = m.DB().Model().Ctx(ctx).Where("server_id=? and status=1", serverId).Scan(&guilds)
+	return
+}
+
+func (m *guildInfoDao) GetAnchorCountByStartLevel(ctx context.Context, userId int64) (count int) {
+	count, _ = m.DB().Ctx(ctx).GetCount(ctx,
+		`SELECT COUNT(ga.user_id) from guild_info gi
+				LEFT JOIN guild_anchor ga on gi.id=ga.guild_id 
+				WHERE ga.star_level>0
+				and gi.status=1
+				and ga.status=1
+				and gi.user_id=?
+				GROUP BY gi.id`, userId)
+	return count
+}
+
+func (m *guildInfoDao) GetGuildInfoByAnchorId(ctx context.Context, userId int64) (data entity.GuildInfo, err error) {
+	err = m.DB().Ctx(ctx).Model(m.Table(), "gi").
+		LeftJoin("guild_anchor ga", "ga.guild_id=gi.id").
+		Where("ga.user_id=? and ga.status=1 and gi.status=1", userId).Fields("gi.*").Scan(&data)
+	return data, err
+}
+
+// GetAnchorLastLiveByTime 主播最后一次直播在那个时间范围
+func (m *guildInfoDao) GetAnchorLastLiveByTime(ctx context.Context, startTime, endTime int64) (resp []model.AnchorLastLiveResp, err error) {
+	sqlStr := `
+		select 
+			gi.user_id as master_id,
+			ui.nickname as master_name,
+			gi.server_id ,
+			ga.user_id ,
+			(
+			select
+			max(rl.begin_time)
+			from
+			room_live rl
+			where
+			rl.user_id = ga.user_id
+			and rl.begin_time between ? and ?
+			and rl.status in (2, 3, 4, 6, 9)) as last_live_time
+		from
+		guild_anchor ga 
+			left join guild_info gi on ga.guild_id = gi.id
+			left join user_info ui on gi.user_id = ui.user_id
+		WHERE EXISTS(
+			SELECT room_id from room_live rl  WHERE rl.user_id= ga.user_id and rl.begin_time between ? and ? and rl.status in (2,3,4,6,9))
+		and not EXISTS (
+			SELECT room_id from room_live rl  WHERE rl.user_id= ga.user_id and rl.begin_time > ? and rl.status in (2,3,4,6,9))
+		and gi.status =1
+		and ga.star_level >0   
+		and ga.status=1 `
+	err = m.DB().Ctx(ctx).GetScan(ctx, &resp, sqlStr, startTime, endTime, startTime, endTime, endTime)
+	return
+}
+
+func (m *guildInfoDao) GetGuildByUserId(ctx context.Context, userId int64) (guild *entity.GuildInfo, err error) {
+	sqlStr := "SELECT gi.* from guild_anchor ga LEFT JOIN guild_info gi on gi.id=ga.guild_id WHERE ga.user_id=? and ga.status=1"
+	re, err := m.DB().Ctx(ctx).GetOne(ctx, sqlStr, userId)
+	re.Struct(&guild)
+	return
+}

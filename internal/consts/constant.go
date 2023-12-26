@@ -1,5 +1,7 @@
 package consts
 
+var CharmList = []string{"Pesona", "Charm", "Pesona cindo", "Pesona cosplay", "Pesona singing", "Pesona dance", "Pesona DJ"}
+
 // ===================支付/花费相关START===================
 // 支付渠道状态 定义常量
 const (

@@ -7,9 +7,11 @@ import (
 	"github.com/go-redsync/redsync/v4/redis/goredis/v9"
 	_ "github.com/gogf/gf/contrib/nosql/redis/v2"
 	"github.com/gogf/gf/v2/database/gredis"
+	"github.com/gogf/gf/v2/os/genv"
 	goredislib "github.com/redis/go-redis/v9"
 
 	"fuya-ark/internal/consts"
+	"fuya-ark/internal/consts/config"
 	"fuya-ark/internal/service"
 	"fuya-ark/router"
 
@@ -37,6 +39,10 @@ var (
 				return err
 			}
 			initRedisLock() //初始化redis锁
+			if err := config.InitConfig(); err != nil {
+				g.Log().Errorf(ctx, "init config error,err: %+v", err)
+				panic("init config error")
+			}
 			//前台项目路由组
 			s.Group("/api/v1", func(group *ghttp.RouterGroup) {
 				group.Middleware(
@@ -56,6 +62,7 @@ var (
 				router.InitActivityRouter(group)
 
 			})
+			genv.Set("GF_GCFG_FILE", "config.prod.toml")
 
 			s.SetPort(8000) //设置端口
 			s.Run()

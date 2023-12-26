@@ -16,7 +16,7 @@ var Activity = cActivity{}
 type cActivity struct{}
 
 func (c *cActivity) ShareChannels(ctx context.Context, r RequestParam) (resp interface{}, gCode gcode.Code) {
-	data := model.ShareChannelsInput{}
+	data := model.ShareChannelsReq{}
 	err := gconv.Struct(r, &data)
 	if err != nil {
 		return nil, utility.ParamError
@@ -25,11 +25,11 @@ func (c *cActivity) ShareChannels(ctx context.Context, r RequestParam) (resp int
 	if err != nil {
 		return nil, utility.Internal
 	}
-	return &model.ShareChannelsOutput{Link: out.Link}, utility.Succeed
+	return &model.ShareChannelsRes{Link: out.Link}, utility.Succeed
 }
 
 func (c *cActivity) NewUserLoginReward(ctx context.Context, r RequestParam) (resp interface{}, gCode gcode.Code) {
-	data := model.NewUserLoginRewardInput{}
+	data := model.NewUserLoginRewardReq{}
 	err := gconv.Struct(r, &data)
 	if err != nil {
 		return nil, utility.ParamError
